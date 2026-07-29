@@ -1,0 +1,29 @@
+# Environment variables & secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+screening.db
+
+# Python virtual environment & cache
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+
+# IDE & OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
