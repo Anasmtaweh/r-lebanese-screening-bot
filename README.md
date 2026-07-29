@@ -77,6 +77,14 @@ SCREENING_TIMEOUT_SECONDS=172800
 
 ---
 
+## ⚠️ CRITICAL RULE: One Live Bot Instance at a Time
+
+Telegram only allows **one live connection per bot token** at any given time.
+* **100% Safe to Run Anytime**: You or any admin can run the test suites (`test_bot.py` and `test_real_llm.py`) locally on your computer at any time. They use mock Telegram objects and never interfere with a live bot.
+* **Do Not Duplicate Live Hosting**: If you run `python bot.py` locally on your laptop, **make sure PythonAnywhere is stopped**, and vice-versa. Running `bot.py` in two places at the same time will cause a Telegram `Conflict: terminated by other getUpdates request` error.
+
+---
+
 ## 🤖 Running the Bot
 
 ### Local Development / Foreground
