@@ -7,13 +7,14 @@ import httpx
 RESULT_SATISFACTORY = "SATISFACTORY"
 RESULT_INCOMPLETE = "INCOMPLETE"
 RESULT_UNSATISFACTORY = "UNSATISFACTORY"
+RESULT_JUNK = "JUNK"
 
 
 class AnswerEvaluator:
     """
     Evaluates a user's reply to the screening questions.
     Returns a tuple: (result_type, feedback_or_summary)
-    - result_type: SATISFACTORY, INCOMPLETE, or UNSATISFACTORY
+    - result_type: SATISFACTORY, INCOMPLETE, UNSATISFACTORY, or JUNK
     - feedback_or_summary: Explanation for admins or follow-up prompt for user
     """
 
@@ -26,26 +27,29 @@ class AnswerEvaluator:
         Checks explicit test triggers first, then uses Groq/Gemini LLM evaluation if AI_API_KEY is configured,
         otherwise uses our smart multi-criteria rule-based evaluator.
         """
-        text_upper = user_text.strip().upper()
-        if "TEST_UNSATISFACTORY" in text_upper:
-            return (
-                RESULT_UNSATISFACTORY,
-                "User response was flagged as unsatisfactory or ineligible.",
-            )
-        if "TEST_INCOMPLETE" in text_upper:
-            return (
-                RESULT_INCOMPLETE,
-                (
-                    "Thank you for replying! However, it looks like some questions were unanswered.\n"
-                    "Please make sure to answer all 4 questions:\n"
-                    "1. Are you Lebanese?\n"
-                    "2. Are you 18 or over?\n"
-                    "3. How did you find out about our server?\n"
-                    "4. Why are you interested in joining?"
-                ),
-            )
-        if "TEST_SATISFACTORY" in text_upper:
-            return (RESULT_SATISFACTORY, user_text)
+        if os.getenv("TESTING_MODE") == "1":
+            text_upper = user_text.strip().upper()
+            if "TEST_JUNK" in text_upper:
+                return (RESULT_JUNK, user_text)
+            if "TEST_UNSATISFACTORY" in text_upper:
+                return (
+                    RESULT_UNSATISFACTORY,
+                    "User response was flagged as unsatisfactory or ineligible.",
+                )
+            if "TEST_INCOMPLETE" in text_upper:
+                return (
+                    RESULT_INCOMPLETE,
+                    (
+                        "Thank you for replying! However, it looks like some questions were unanswered.\n"
+                        "Please make sure to answer all 4 questions:\n"
+                        "1. Are you Lebanese?\n"
+                        "2. Are you 18 or over?\n"
+                        "3. How did you find out about our server?\n"
+                        "4. Why are you interested in joining?"
+                    ),
+                )
+            if "TEST_SATISFACTORY" in text_upper:
+                return (RESULT_SATISFACTORY, user_text)
 
         if self.api_key:
             try:
@@ -152,15 +156,16 @@ class AnswerEvaluator:
             "2. Are you 18 or older? (Must be 18+)\n"
             "3. How did you find out about our server?\n"
             "4. Why are you interested in joining?\n\n"
-            "CRITICAL RULE: Do NOT be lenient! The user MUST explicitly answer ALL 4 questions. "
-            "If they only state nationality and age (e.g., 'Lebanese, 27') but omit HOW they found out (#3) or WHY they want to join (#4), you MUST return INCOMPLETE.\n"
-            "Note: Applicants may reply in English, Arabic, or Lebanese Franco-Arabic dialect (e.g., 'eh lebanese akid, 25 sene'). "
-            "Accept satisfactory answers in any language or dialect.\n\n"
+            "CRITICAL RULES:\n"
+            "1. JUNK vs INCOMPLETE: If the user did NOT genuinely answer ANY of the 4 screening questions (e.g. 'yes yes yes', 'ok hello', 'who you are', or spam), you MUST return JUNK!\n"
+            "2. ANTI-LENIENCY: Only return INCOMPLETE if they genuinely answered AT LEAST ONE question (e.g., 'Lebanese, 22') but missed others. If any of the 4 questions is missing, you MUST return INCOMPLETE and NOT SATISFACTORY.\n"
+            "3. DIALECTS: Accept answers in English, Arabic, or Lebanese Franco-Arabic dialect (e.g., 'eh lebanese akid, 25 sene').\n\n"
             f"User Reply:\n\"\"\"{user_text}\"\"\"\n\n"
             "Reply with exactly ONE line:\n"
-            "- SATISFACTORY (if all 4 questions are answered)\n"
+            "- SATISFACTORY (if all 4 questions are explicitly answered)\n"
             "- UNSATISFACTORY (ONLY if the user indicates their age is UNDER 18, e.g. 15, 16, 17, or abusive)\n"
-            "- INCOMPLETE | <missing_numbers> (if any question is skipped or unanswered, list ONLY the missing question numbers separated by commas, e.g., 'INCOMPLETE | 2, 4' or 'INCOMPLETE | 1, 2, 3, 4')"
+            "- JUNK (if 0 questions were answered, e.g. 'who you are', 'yes yes yes', 'ok hello', 'hello')\n"
+            "- INCOMPLETE | <missing_numbers> (if 1-3 questions were answered, list ONLY the missing numbers separated by commas, e.g., 'INCOMPLETE | 3, 4')"
         )
 
         reply_token = ""
@@ -196,6 +201,8 @@ class AnswerEvaluator:
 
         if "SATISFACTORY" in reply_token and "UNSATISFACTORY" not in reply_token:
             return (RESULT_SATISFACTORY, user_text)
+        elif "JUNK" in reply_token:
+            return (RESULT_JUNK, user_text)
         elif "UNSATISFACTORY" in reply_token:
             # DO NOT auto-decline! Return for manual admin review
             return (

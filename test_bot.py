@@ -4,6 +4,8 @@ import os
 import unittest
 from typing import Any, Dict, List, Optional
 
+os.environ["TESTING_MODE"] = "1"
+
 from telegram import (
     Chat,
     ChatJoinRequest,

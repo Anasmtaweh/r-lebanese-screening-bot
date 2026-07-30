@@ -264,3 +264,32 @@ def get_transcript_summary(user_id: int, db_path: Optional[str] = None) -> str:
         role_label = "👤 User Reply" if item["role"] == "user" else "🤖 Bot Follow-up"
         lines.append(f"  [{role_label} #{i}]: \"{item['text']}\"")
     return "\n".join(lines)
+
+
+def get_screening_stats(db_path: Optional[str] = None) -> Dict[str, int]:
+    """Returns overall screening statistics for CV/metrics monitoring."""
+    with _get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(DISTINCT user_id) FROM screening_sessions")
+        total_requests = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT COUNT(*) FROM user_history WHERE action = 'PASSED_SCREENING'")
+        passed = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT COUNT(*) FROM user_history WHERE action = 'DECLINED_JUNK'")
+        declined_junk = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT COUNT(*) FROM user_history WHERE action = 'DISMISSED_TIMEOUT'")
+        timeout = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT COUNT(*) FROM screening_sessions WHERE status IN (?, ?)", ("PENDING", "PARTIAL"))
+        active = cursor.fetchone()[0] or 0
+
+        return {
+            "total_requests": total_requests,
+            "passed": passed,
+            "declined_junk": declined_junk,
+            "timeout": timeout,
+            "active": active,
+        }
+
