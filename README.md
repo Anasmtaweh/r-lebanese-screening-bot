@@ -14,11 +14,15 @@ An autonomous, hardened Telegram screening and onboarding bot designed for the *
   * Users **never** see AI-generated text. The bot only sends hardcoded, pre-written question templates, preventing prompt injection, AI jailbreaks, or casual chatting.
   * Supports English, Arabic, and Lebanese Franco-Arabic dialect (e.g., `"eh lebanese akid, 25 sene"`).
 * **👨‍✈️ 100% Manual Admin Control (No Auto-Decisions)**:
-  * The bot **never** automatically accepts or declines an applicant (unless they time out).
+  * The bot **never** automatically accepts or declines an applicant (unless they time out or send junk).
   * If a user indicates they are **under 18**, they are flagged as `⚠️ Flagged by screening check (Under 18 / Review Needed)` in the Admin Channel so admins can decide manually.
+* **🗑️ Instant Junk Reply Protection (Silent On-The-Spot Decline)**:
+  * If a user replies with zero-effort nonsense, spam, or insults (`"who you are"`, `"yes yes yes"`, `"ok"`), the bot **silently declines their join request on the spot** without sending them a DM.
+  * Sends an immediate report to the Admin Channel with the user's junk reply (`🗑️ Automatically Declined: Junk Reply`).
 * **💬 Easy Admin Telegram Commands**:
   * `/reply <user_id> <message>` — Send a direct DM to an applicant directly from the Admin Channel.
   * `/decline <user_id> [reason]` — Decline a join request, send a decline reason DM, and delete screening DMs.
+  * `/stats` — View real-time screening metrics for monitoring and CV reporting (total requests, passed, declined junk, timeout).
   * `/chat_id` — Get the Telegram ID of the current group or channel.
 * **⏳ Rolling 48-Hour Timeout**:
   * Every time a message is sent, the 48-hour timer resets.
@@ -126,6 +130,15 @@ venv/bin/python test_real_llm.py
 ```
 * Tests polite paragraphs, casual short text, Lebanese Franco-Arabic dialect, under-18 flagging, and prompt-injection/jailbreak clamp resistance.
 
+### 3. Junk vs. Incomplete Strict Separation Test Suite (`test_junk.py`)
+Verifies that spam/nonsense replies are immediately declined as junk without affecting partial real answers:
+```bash
+venv/bin/python test_junk.py
+```
+* Proves that `"who you are"` or `"ok hello"` are classified as `JUNK`, while `"Lebanese, 21"` is classified as `INCOMPLETE` and never declined as junk.
+
+> **Note on Production Safety (`TESTING_MODE`)**: All hardcoded test triggers (`TEST_INCOMPLETE`, `TEST_JUNK`, etc.) are wrapped in an environment check (`os.getenv("TESTING_MODE") == "1"`). In live production (`bot.py`), this variable is unset, guaranteeing that 100% of user replies are evaluated by the AI and no hardcoded test triggers can ever activate in production.
+
 ---
 
 ## 📂 Project Structure
@@ -138,6 +151,7 @@ venv/bin/python test_real_llm.py
 ├── handlers.py        # Telegram event handlers (join requests, DMs, admin commands)
 ├── test_bot.py        # 6-scenario Telegram lifecycle simulation test suite
 ├── test_real_llm.py   # 10-scenario live Groq LLM & clamp stress test suite
+├── test_junk.py       # 5-scenario JUNK vs INCOMPLETE strict separation test suite
 ├── requirements.txt   # Python package dependencies
 ├── .gitignore         # Protects secrets (.env, database, venv) from git
 └── README.md          # Documentation

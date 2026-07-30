@@ -20,6 +20,7 @@ from evaluator import (
     RESULT_INCOMPLETE,
     RESULT_SATISFACTORY,
     RESULT_UNSATISFACTORY,
+    RESULT_JUNK,
 )
 
 logger = logging.getLogger(__name__)
@@ -216,6 +217,29 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f"💡 Admins: Please review manually. Use `/reply {user.id} <msg>` or `/decline {user.id} <reason>`.",
         )
 
+    elif res_type == RESULT_JUNK:
+        # Silently decline on the spot! Do NOT send any DM to the user.
+        database.update_session_status(user.id, STATUS_DECLINED, answers_text=user_text)
+        database.add_user_history(user.id, chat_id, "DECLINED_JUNK", "Declined on the spot for junk/spam reply")
+
+        # Silently decline their Telegram join request
+        try:
+            await context.bot.decline_chat_join_request(chat_id=chat_id, user_id=user.id)
+            logger.info("Silently declined join request for user %s due to JUNK reply", user.id)
+        except TelegramError as e:
+            logger.error("Error declining join request for user %s: %s", user.id, e)
+
+        # Notify Admins with the user's junk reply
+        await send_admin_notification(
+            context,
+            f"🗑️ Automatically Declined: Junk Reply\n"
+            f"User: {user.full_name} (@{user.username} | ID: {user.id})\n"
+            f"Chat ID: {chat_id}"
+            f"{history_block}\n\n"
+            f"Their Reply: \"{user_text}\"",
+        )
+
+
 
 async def on_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -397,3 +421,26 @@ async def on_admin_decline_command(update: Update, context: ContextTypes.DEFAULT
     await _delete_bot_messages(context, target_user_id)
     database.update_session_status(target_user_id, STATUS_DISMISSED)
     await update.message.reply_text(f"🚫 User {target_user_id} declined & messages deleted.")
+
+
+async def on_admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Admin command: /stats
+    Shows screening metrics for CV/monitoring (total requests, passed, declined junk, timeout).
+    """
+    if not update.message:
+        return
+    if ADMIN_CHAT_ID and str(update.effective_chat.id) != str(ADMIN_CHAT_ID) and update.effective_chat.type != Chat.PRIVATE:
+        return
+
+    stats = database.get_screening_stats()
+    msg = (
+        "📊 R/lebanese Screening Statistics:\n"
+        f"• Total Join Requests: {stats['total_requests']}\n"
+        f"• Passed Screening: {stats['passed']}\n"
+        f"• Declined (Junk Reply): {stats['declined_junk']}\n"
+        f"• Declined (48h Timeout): {stats['timeout']}\n"
+        f"• Currently In Screening: {stats['active']}"
+    )
+    await update.message.reply_text(msg)
+
