@@ -112,12 +112,14 @@ def add_or_reset_session(user_id: int, chat_id: int, db_path: Optional[str] = No
     with _get_connection(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO screening_sessions (user_id, chat_id, status, bot_message_ids, answers_text, created_at, updated_at)
-            VALUES (?, ?, ?, '[]', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO screening_sessions (user_id, chat_id, status, bot_message_ids, answers_text, attempt_count, transcript_json, created_at, updated_at)
+            VALUES (?, ?, ?, '[]', '', 0, '[]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 status = excluded.status,
                 bot_message_ids = '[]',
                 answers_text = '',
+                attempt_count = 0,
+                transcript_json = '[]',
                 updated_at = CURRENT_TIMESTAMP
             """,
             (user_id, chat_id, STATUS_PENDING),
