@@ -273,13 +273,13 @@ def get_screening_stats(db_path: Optional[str] = None) -> Dict[str, int]:
         cursor.execute("SELECT COUNT(DISTINCT user_id) FROM screening_sessions")
         total_requests = cursor.fetchone()[0] or 0
 
-        cursor.execute("SELECT COUNT(*) FROM user_history WHERE action = 'PASSED_SCREENING'")
+        cursor.execute("SELECT COUNT(*) FROM user_history WHERE event_type = 'PASSED_SCREENING'")
         passed = cursor.fetchone()[0] or 0
 
-        cursor.execute("SELECT COUNT(*) FROM user_history WHERE action = 'DECLINED_JUNK'")
+        cursor.execute("SELECT COUNT(*) FROM user_history WHERE event_type = 'DECLINED_JUNK'")
         declined_junk = cursor.fetchone()[0] or 0
 
-        cursor.execute("SELECT COUNT(*) FROM user_history WHERE action = 'DISMISSED_TIMEOUT'")
+        cursor.execute("SELECT COUNT(*) FROM user_history WHERE event_type = 'DISMISSED_TIMEOUT'")
         timeout = cursor.fetchone()[0] or 0
 
         cursor.execute("SELECT COUNT(*) FROM screening_sessions WHERE status IN (?, ?)", ("PENDING", "PARTIAL"))
