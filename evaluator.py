@@ -66,31 +66,8 @@ class AnswerEvaluator:
         2. Age 18+
         3. How they found out
         4. Why they want to join
-        Also supports explicit test triggers: TEST_SATISFACTORY, TEST_INCOMPLETE, TEST_UNSATISFACTORY.
         """
-        text_upper = user_text.strip().upper()
         text_lower = user_text.strip().lower()
-
-        # 1. Explicit test triggers for easy unit/mock testing
-        if "TEST_UNSATISFACTORY" in text_upper:
-            return (
-                RESULT_UNSATISFACTORY,
-                "User response was flagged as unsatisfactory or ineligible.",
-            )
-        if "TEST_INCOMPLETE" in text_upper:
-            return (
-                RESULT_INCOMPLETE,
-                (
-                    "Thank you for replying! However, it looks like some questions were unanswered.\n"
-                    "Please make sure to answer all 4 questions:\n"
-                    "1. Are you Lebanese?\n"
-                    "2. Are you 18 or over?\n"
-                    "3. How did you find out about our server?\n"
-                    "4. Why are you interested in joining?"
-                ),
-            )
-        if "TEST_SATISFACTORY" in text_upper:
-            return (RESULT_SATISFACTORY, user_text)
 
         # 2. Check for obvious under-age indicators
         words = text_lower.split()
@@ -236,5 +213,3 @@ class AnswerEvaluator:
                     "Please reply with your answers so we can review your request!"
                 ),
             )
-
-        return self.evaluate_rule_based(user_text)
