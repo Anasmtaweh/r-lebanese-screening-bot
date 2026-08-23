@@ -16,6 +16,7 @@ import database
 from config import BOT_TOKEN
 from handlers import (
     on_admin_decline_command,
+    on_admin_help_command,
     on_admin_list_command,
     on_admin_relay_reply,
     on_admin_reply_command,
@@ -68,6 +69,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stats", on_admin_stats_command))
     app.add_handler(CommandHandler("list", on_admin_list_command))
     app.add_handler(CommandHandler("transcript", on_admin_transcript_command))
+    app.add_handler(CommandHandler("help", on_admin_help_command))
 
 
     # Join Request Handler

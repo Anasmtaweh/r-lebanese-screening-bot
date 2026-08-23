@@ -323,3 +323,27 @@ def get_recent_users_by_event(event_type: str, limit: int = 50, db_path: Optiona
             rows.append(r)
         return rows
 
+
+def get_pending_users(limit: int = 50, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Returns a list of users currently in PENDING or PARTIAL status."""
+    with _get_connection(db_path) as conn:
+        cursor = conn.execute(
+            """
+            SELECT user_id, updated_at as created_at, user_metadata_json
+            FROM screening_sessions
+            WHERE status IN ('PENDING', 'PARTIAL')
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (limit,)
+        )
+        rows = []
+        for row in cursor.fetchall():
+            r = dict(row)
+            try:
+                r["metadata"] = json.loads(r["user_metadata_json"]) if r["user_metadata_json"] else {}
+            except Exception:
+                r["metadata"] = {}
+            rows.append(r)
+        return rows
+

@@ -475,19 +475,21 @@ async def on_admin_list_command(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     args = context.args or []
-    if len(args) < 1 or args[0].lower() not in ["passed", "junk", "timeout"]:
-        await update.message.reply_text("Usage: /list <passed|junk|timeout>")
+    if len(args) < 1 or args[0].lower() not in ["passed", "junk", "timeout", "pending"]:
+        await update.message.reply_text("Usage: /list <passed|junk|timeout|pending>")
         return
 
     category = args[0].lower()
-    event_map = {
-        "passed": "PASSED_SCREENING",
-        "junk": "DECLINED_JUNK",
-        "timeout": "DISMISSED_TIMEOUT"
-    }
-    
-    event_type = event_map[category]
-    users = database.get_recent_users_by_event(event_type, limit=20)
+    if category == "pending":
+        users = database.get_pending_users(limit=20)
+    else:
+        event_map = {
+            "passed": "PASSED_SCREENING",
+            "junk": "DECLINED_JUNK",
+            "timeout": "DISMISSED_TIMEOUT"
+        }
+        event_type = event_map[category]
+        users = database.get_recent_users_by_event(event_type, limit=20)
     
     if not users:
         await update.message.reply_text(f"No users found in the '{category}' category.")
@@ -528,4 +530,30 @@ async def on_admin_transcript_command(update: Update, context: ContextTypes.DEFA
         return
         
     await update.message.reply_text(f"📄 Transcript for {target_user_id}:\n\n{transcript_text}")
+
+
+async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Admin command: /help
+    Shows all available admin commands and how to use them.
+    """
+    if not update.message:
+        return
+    if not _is_admin(update):
+        return
+
+    help_text = (
+        "🛠️ **R/lebanese Screening Bot - Admin Commands**\n\n"
+        "**Analytics & Reports**\n"
+        "• `/stats` - View overall screening numbers (passed, pending, declined, etc.)\n"
+        "• `/list <category>` - View the last 20 users in a category.\n"
+        "   *(Categories: passed, junk, timeout, pending)*\n"
+        "• `/transcript <user_id>` - View the full chat history of any user.\n\n"
+        "**Manual Actions**\n"
+        "• `/reply <user_id> <message>` - Send a custom DM to an applicant.\n"
+        "• `/decline <user_id>` - Silently decline an applicant and delete their DM history.\n\n"
+        "*(Note: You can also approve/decline users natively via Telegram's group management menu!)*"
+    )
+    
+    await update.message.reply_text(help_text, parse_mode="Markdown")
 
