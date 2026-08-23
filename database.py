@@ -264,7 +264,7 @@ def get_transcript_summary(user_id: int, db_path: Optional[str] = None) -> str:
         return ""
     transcript: List[Dict[str, str]] = json.loads(session["transcript_json"] or "[]")
     if not transcript:
-        return ""
+        return "*(User has not sent any replies yet)*"
     lines = ["💬 Full 2-Attempt Conversation Transcript:"]
     for i, item in enumerate(transcript, 1):
         role_label = "👤 User Reply" if item["role"] == "user" else "🤖 Bot Follow-up"
