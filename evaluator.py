@@ -146,7 +146,9 @@ class AnswerEvaluator:
         )
 
         reply_token = ""
-        with httpx.Client(timeout=10.0) as client:
+        # Route Groq/Gemini calls through PythonAnywhere proxy to bypass free tier firewall
+        proxy_url = "http://proxy.server:3128" if os.environ.get("PYTHONANYWHERE_SITE") else None
+        with httpx.Client(proxy=proxy_url, timeout=10.0) as client:
             if self.api_key.startswith("gsk_"):
                 # Groq API (Llama 3.1 8B Instant - 100% Free)
                 url = "https://api.groq.com/openai/v1/chat/completions"

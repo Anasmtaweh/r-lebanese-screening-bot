@@ -1,4 +1,5 @@
 import logging
+import os
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -49,8 +50,10 @@ def main() -> None:
     # 1. Initialize SQLite database
     database.init_db()
 
-    # 2. Create HTTPXRequest with increased 20s timeouts to prevent startup TimedOut errors
-    request = HTTPXRequest(connect_timeout=20.0, read_timeout=20.0)
+    # 2. Create HTTPXRequest with increased 30s timeouts and PythonAnywhere Proxy
+    # PythonAnywhere free tier requires outgoing traffic to route through their proxy.
+    proxy_url = "http://proxy.server:3128" if os.environ.get("PYTHONANYWHERE_SITE") else None
+    request = HTTPXRequest(proxy=proxy_url, connect_timeout=30.0, read_timeout=30.0)
 
     # 3. Build Application with JobQueue enabled
     app = Application.builder().token(BOT_TOKEN).request(request).build()
