@@ -504,3 +504,28 @@ async def on_admin_list_command(update: Update, context: ContextTypes.DEFAULT_TY
 
     await update.message.reply_text("\n".join(lines))
 
+
+async def on_admin_transcript_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Admin command: /transcript <user_id>
+    Shows the full stored conversation transcript between the bot and the user.
+    """
+    if not update.message or not update.message.text:
+        return
+    if not _is_admin(update):
+        return
+
+    args = context.args or []
+    if len(args) < 1 or not args[0].lstrip("-").isdigit():
+        await update.message.reply_text("Usage: /transcript <user_id>")
+        return
+
+    target_user_id = int(args[0])
+    transcript_text = database.get_transcript_summary(target_user_id)
+    
+    if not transcript_text:
+        await update.message.reply_text(f"No conversation transcript found for user ID {target_user_id}.")
+        return
+        
+    await update.message.reply_text(f"📄 Transcript for {target_user_id}:\n\n{transcript_text}")
+

@@ -20,6 +20,7 @@ from handlers import (
     on_admin_relay_reply,
     on_admin_reply_command,
     on_admin_stats_command,
+    on_admin_transcript_command,
     on_chat_member_updated,
     on_join_request,
     on_user_dm_reply,
@@ -66,6 +67,7 @@ def main() -> None:
     app.add_handler(CommandHandler("decline", on_admin_decline_command))
     app.add_handler(CommandHandler("stats", on_admin_stats_command))
     app.add_handler(CommandHandler("list", on_admin_list_command))
+    app.add_handler(CommandHandler("transcript", on_admin_transcript_command))
 
 
     # Join Request Handler
