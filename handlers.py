@@ -8,8 +8,10 @@ from telegram.ext import ContextTypes
 import database
 from config import (
     ADMIN_CHAT_ID,
+    ADMIN_USER_IDS,
     SCREENING_QUESTIONS,
     SCREENING_TIMEOUT_SECONDS,
+    STATUS_APPROVED,
     STATUS_DECLINED,
     STATUS_DISMISSED,
     STATUS_PARTIAL,
@@ -26,6 +28,14 @@ from evaluator import (
 
 logger = logging.getLogger(__name__)
 evaluator = AnswerEvaluator()
+
+
+def _is_admin(update: Update) -> bool:
+    """Returns True only if the message sender's Telegram user ID is in the ADMIN_USER_IDS whitelist."""
+    user = update.effective_user
+    if not user:
+        return False
+    return user.id in ADMIN_USER_IDS
 
 
 async def send_admin_notification(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
@@ -67,8 +77,14 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     history_summary = database.format_user_history_summary(user.id, chat.id)
     history_block = f"\n\n{history_summary}" if history_summary else "\n\n✨ First-time applicant."
 
-    # 2. Initialize SQLite session
-    database.add_or_reset_session(user.id, chat.id)
+    # 2. Initialize SQLite session with user metadata for future AI training
+    user_metadata = {
+        "username": user.username,
+        "full_name": user.full_name,
+        "is_premium": user.is_premium,
+        "language_code": user.language_code
+    }
+    database.add_or_reset_session(user.id, chat.id, user_metadata)
 
     # 3. Send screening questions DM to user
     try:
@@ -259,7 +275,9 @@ async def on_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_T
     # User joined / was approved
     if old_status in (ChatMember.LEFT, ChatMember.BANNED) and new_status in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER):
         database.add_user_history(user.id, chat.id, "APPROVED_JOINED", "User joined the group")
-        logger.info("Recorded history: User %s joined group %s", user.id, chat.id)
+        database.update_session_status(user.id, STATUS_APPROVED)
+        await _delete_bot_messages(context, user.id)
+        logger.info("Recorded history: User %s joined group %s and session approved", user.id, chat.id)
 
     # User left / was kicked
     elif old_status in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR) and new_status in (ChatMember.LEFT, ChatMember.BANNED):
@@ -275,8 +293,8 @@ async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYP
     if not update.message or not update.message.reply_to_message:
         return
 
-    # Check if this chat is the ADMIN_CHAT_ID (if configured)
-    if ADMIN_CHAT_ID and str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+    # Security: Only allow authorized admins
+    if not _is_admin(update):
         return
 
     replied_text = update.message.reply_to_message.text or ""
@@ -362,7 +380,7 @@ async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_T
     """
     if not update.message or not update.message.text:
         return
-    if ADMIN_CHAT_ID and str(update.effective_chat.id) != str(ADMIN_CHAT_ID) and update.effective_chat.type != Chat.PRIVATE:
+    if not _is_admin(update):
         return
 
     args = context.args or []
@@ -390,7 +408,7 @@ async def on_admin_decline_command(update: Update, context: ContextTypes.DEFAULT
     """
     if not update.message or not update.message.text:
         return
-    if ADMIN_CHAT_ID and str(update.effective_chat.id) != str(ADMIN_CHAT_ID) and update.effective_chat.type != Chat.PRIVATE:
+    if not _is_admin(update):
         return
 
     args = context.args or []
@@ -431,7 +449,7 @@ async def on_admin_stats_command(update: Update, context: ContextTypes.DEFAULT_T
     """
     if not update.message:
         return
-    if ADMIN_CHAT_ID and str(update.effective_chat.id) != str(ADMIN_CHAT_ID) and update.effective_chat.type != Chat.PRIVATE:
+    if not _is_admin(update):
         return
 
     stats = database.get_screening_stats()

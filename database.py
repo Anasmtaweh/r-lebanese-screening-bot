@@ -20,6 +20,7 @@ def _get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
             answers_text TEXT NOT NULL DEFAULT '',
             attempt_count INTEGER NOT NULL DEFAULT 0,
             transcript_json TEXT NOT NULL DEFAULT '[]',
+            user_metadata_json TEXT NOT NULL DEFAULT '{}',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(user_id, chat_id)
@@ -29,6 +30,7 @@ def _get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     for col_sql in [
         "ALTER TABLE screening_sessions ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE screening_sessions ADD COLUMN transcript_json TEXT NOT NULL DEFAULT '[]'",
+        "ALTER TABLE screening_sessions ADD COLUMN user_metadata_json TEXT NOT NULL DEFAULT '{}'",
     ]:
         try:
             conn.execute(col_sql)
@@ -107,22 +109,24 @@ def init_db(db_path: Optional[str] = None) -> None:
         pass
 
 
-def add_or_reset_session(user_id: int, chat_id: int, db_path: Optional[str] = None) -> None:
+def add_or_reset_session(user_id: int, chat_id: int, user_metadata: Optional[Dict[str, Any]] = None, db_path: Optional[str] = None) -> None:
     """Creates a new screening session or resets an existing one to PENDING."""
+    meta_json = json.dumps(user_metadata) if user_metadata else '{}'
     with _get_connection(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO screening_sessions (user_id, chat_id, status, bot_message_ids, answers_text, attempt_count, transcript_json, created_at, updated_at)
-            VALUES (?, ?, ?, '[]', '', 0, '[]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO screening_sessions (user_id, chat_id, status, bot_message_ids, answers_text, attempt_count, transcript_json, user_metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, '[]', '', 0, '[]', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 status = excluded.status,
                 bot_message_ids = '[]',
                 answers_text = '',
                 attempt_count = 0,
                 transcript_json = '[]',
+                user_metadata_json = excluded.user_metadata_json,
                 updated_at = CURRENT_TIMESTAMP
             """,
-            (user_id, chat_id, STATUS_PENDING),
+            (user_id, chat_id, STATUS_PENDING, meta_json),
         )
         conn.commit()
 
