@@ -299,3 +299,27 @@ def get_screening_stats(db_path: Optional[str] = None) -> Dict[str, int]:
             "active": active,
         }
 
+def get_recent_users_by_event(event_type: str, limit: int = 50, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Returns a list of recent users who triggered a specific history event (e.g. PASSED_SCREENING)."""
+    with _get_connection(db_path) as conn:
+        cursor = conn.execute(
+            """
+            SELECT h.user_id, h.created_at, s.user_metadata_json
+            FROM user_history h
+            LEFT JOIN screening_sessions s ON h.user_id = s.user_id
+            WHERE h.event_type = ?
+            ORDER BY h.created_at DESC
+            LIMIT ?
+            """,
+            (event_type, limit)
+        )
+        rows = []
+        for row in cursor.fetchall():
+            r = dict(row)
+            try:
+                r["metadata"] = json.loads(r["user_metadata_json"]) if r["user_metadata_json"] else {}
+            except Exception:
+                r["metadata"] = {}
+            rows.append(r)
+        return rows
+

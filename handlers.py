@@ -463,3 +463,44 @@ async def on_admin_stats_command(update: Update, context: ContextTypes.DEFAULT_T
     )
     await update.message.reply_text(msg)
 
+
+async def on_admin_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Admin command: /list <passed|junk|timeout>
+    Shows a list of the last 20 users who fall into that category.
+    """
+    if not update.message:
+        return
+    if not _is_admin(update):
+        return
+
+    args = context.args or []
+    if len(args) < 1 or args[0].lower() not in ["passed", "junk", "timeout"]:
+        await update.message.reply_text("Usage: /list <passed|junk|timeout>")
+        return
+
+    category = args[0].lower()
+    event_map = {
+        "passed": "PASSED_SCREENING",
+        "junk": "DECLINED_JUNK",
+        "timeout": "DISMISSED_TIMEOUT"
+    }
+    
+    event_type = event_map[category]
+    users = database.get_recent_users_by_event(event_type, limit=20)
+    
+    if not users:
+        await update.message.reply_text(f"No users found in the '{category}' category.")
+        return
+
+    lines = [f"📋 Last 20 users in category: {category.upper()}"]
+    for idx, u in enumerate(users, 1):
+        uid = u["user_id"]
+        date = str(u["created_at"])[:16]
+        meta = u.get("metadata", {})
+        name = meta.get("full_name") or "Unknown Name"
+        username = f"(@{meta.get('username')})" if meta.get("username") else ""
+        lines.append(f"{idx}. {name} {username} (ID: {uid}) - {date}")
+
+    await update.message.reply_text("\n".join(lines))
+
