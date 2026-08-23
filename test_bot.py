@@ -5,6 +5,7 @@ import unittest
 from typing import Any, Dict, List, Optional
 
 os.environ["TESTING_MODE"] = "1"
+os.environ["ADMIN_USER_IDS"] = "999"
 
 from telegram import (
     Chat,
