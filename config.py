@@ -20,18 +20,33 @@ ADMIN_USER_IDS = [
 ]
 
 # Exactly the screening paragraph requested by R/lebanese admins
-SCREENING_QUESTIONS = """Hello
-R/lebanese admins here
+SCREENING_QUESTIONS_EN = """Hello! R/lebanese admins here.
 
-Are you Lebanese?
+1. Are you Lebanese?
 
-Are you 18 or over?
+2. Are you 18 or over?
 
-How did you find out about our server?
+3. How did you find out about our server?
 
-Why are you interested in joining our server?
+4. Why are you interested in joining our server?
 
 Please note that not answering in 48 hours will result in request declining."""
+
+SCREENING_QUESTIONS_AR = """مرحباً! إدارة مجتمع R/lebanese هنا.
+
+1. هل أنت لبناني؟
+
+2. هل عمرك 18 سنة أو أكثر؟
+
+3. كيف عرفت عن السيرفر؟
+
+4. لماذا تريد الانضمام إلى السيرفر؟
+
+ملاحظة: عدم الإجابة خلال 48 ساعة سيؤدي إلى رفض الطلب."""
+
+INCOMPLETE_PROMPT_EN = "Thank you for your response! However, it looks like you missed or didn't clearly answer the following:\n\n{missing_text}\n\nPlease reply with your complete answers so we can review your request!"
+
+INCOMPLETE_PROMPT_AR = "شكراً على إجابتك! ولكن يبدو أنك لم تجب على جميع الأسئلة بوضوح. يرجى الإجابة على الأسئلة الناقصة:\n\n{missing_text}"
 
 # Session Status Constants
 STATUS_PENDING = "PENDING"

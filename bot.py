@@ -6,6 +6,7 @@ from telegram.ext import (
     Application,
     ChatJoinRequestHandler,
     ChatMemberHandler,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -26,6 +27,7 @@ from handlers import (
     on_admin_transcript_command,
     on_chat_member_updated,
     on_join_request,
+    on_language_selection,
     on_user_dm_reply,
 )
 
@@ -98,6 +100,9 @@ def main() -> None:
 
     # Join Request Handler
     app.add_handler(ChatJoinRequestHandler(on_join_request))
+
+    # Language Selection Callback Handler
+    app.add_handler(CallbackQueryHandler(on_language_selection, pattern="^lang_"))
 
     # Chat Member Status Handler (Tracks when users join or leave the group)
     app.add_handler(

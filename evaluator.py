@@ -2,6 +2,7 @@ import json
 import os
 from typing import Tuple
 import httpx
+from config import INCOMPLETE_PROMPT_EN, INCOMPLETE_PROMPT_AR
 
 # Result Constants
 RESULT_SATISFACTORY = "SATISFACTORY"
@@ -20,14 +21,14 @@ class AnswerEvaluator:
 
     def __init__(self, api_key: str = ""):
         self.api_key = api_key or os.getenv("AI_API_KEY", "")
+        self.test_mode = os.getenv("TESTING_MODE") == "1"
 
-    def evaluate(self, user_text: str) -> Tuple[str, str]:
+    def evaluate(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
-        Main evaluation entry point.
-        Checks explicit test triggers first, then uses Groq/Gemini LLM evaluation if AI_API_KEY is configured,
-        otherwise uses our smart multi-criteria rule-based evaluator.
+        Main entry point for evaluating a user's reply.
+        Prioritizes LLM if available, falls back to rule-based.
         """
-        if os.getenv("TESTING_MODE") == "1":
+        if self.test_mode:
             text_upper = user_text.strip().upper()
             if "TEST_JUNK" in text_upper:
                 return (RESULT_JUNK, user_text)
@@ -39,27 +40,21 @@ class AnswerEvaluator:
             if "TEST_SATISFACTORY" in text_upper:
                 return (RESULT_SATISFACTORY, user_text)
             if "TEST_INCOMPLETE" in text_upper:
+                prompt = INCOMPLETE_PROMPT_AR if language_code == "ar" else INCOMPLETE_PROMPT_EN
                 return (
                     RESULT_INCOMPLETE,
-                    (
-                        "Thank you for replying! However, it looks like some questions were unanswered.\n"
-                        "Please make sure to answer all 4 questions:\n"
-                        "1. Are you Lebanese?\n"
-                        "2. Are you 18 or over?\n"
-                        "3. How did you find out about our server?\n"
-                        "4. Why are you interested in joining?"
-                    ),
+                    prompt.format(missing_text="• All 4 questions / جميع الأسئلة الأربعة")
                 )
 
         if self.api_key:
             try:
-                return self.evaluate_with_llm(user_text)
+                return self.evaluate_with_llm(user_text, language_code)
             except Exception as e:
                 print(f"LLM evaluation failed ({e}), falling back to rule-based evaluation.")
 
-        return self.evaluate_rule_based(user_text)
+        return self.evaluate_rule_based(user_text, language_code)
 
-    def evaluate_rule_based(self, user_text: str) -> Tuple[str, str]:
+    def evaluate_rule_based(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
         Smart rule-based evaluator that checks if all 4 required criteria are addressed:
         1. Lebanese identity
@@ -79,24 +74,13 @@ class AnswerEvaluator:
 
         # 3. Check for extremely short or lazy answers (e.g. "yes yes yes from Google to no people")
         if len(words) < 12:
+            prompt = INCOMPLETE_PROMPT_AR if language_code == "ar" else INCOMPLETE_PROMPT_EN
             return (
                 RESULT_INCOMPLETE,
-                (
-                    "Thank you for your reply! However, your response is too brief to evaluate properly.\n\n"
-                    "Please provide a complete answer to all 4 questions:\n"
-                    "1. Are you Lebanese?\n"
-                    "2. Are you 18 or over?\n"
-                    "3. How did you find out about our server?\n"
-                    "4. Why are you interested in joining?"
-                ),
+                prompt.format(missing_text="• All 4 questions / جميع الأسئلة الأربعة")
             )
 
         # 4. Question-by-Question Coverage Heuristic:
-        # Check if the reply touches on:
-        # - Lebanese: "yes", "lebanese", "lebanon", "beirut", "tripoli", "lb", etc.
-        # - Age: "18", "19", "20", "21", "22", "23", "24", "25", "30", "yes", "over 18", "years old"
-        # - Found out: "reddit", "google", "friend", "r/lebanon", "server", "telegram", "link", "search", "found"
-        # - Why join: "community", "people", "talk", "chat", "discuss", "news", "join", "friends", "lebanese", "culture"
         has_lebanese = any(kw in text_lower for kw in ["yes", "lebanese", "lebanon", "beirut", "lb", "am lebanese"])
         has_age = any(kw in text_lower for kw in ["18", "19", "20", "21", "22", "23", "24", "25", "30", "years", "old", "over 18"])
         has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub"])
@@ -104,24 +88,25 @@ class AnswerEvaluator:
 
         missing = []
         if not has_lebanese:
-            missing.append("1. Whether you are Lebanese")
+            missing.append("1. Whether you are Lebanese / هل أنت لبناني")
         if not has_age:
-            missing.append("2. Whether you are 18 or older")
+            missing.append("2. Whether you are 18 or older / هل عمرك 18 سنة أو أكثر")
         if not has_source:
-            missing.append("3. How you found out about our server")
+            missing.append("3. How you found out about our server / كيف عرفت عن السيرفر")
         if not has_reason:
-            missing.append("4. Why you are interested in joining")
+            missing.append("4. Why you are interested in joining / لماذا تريد الانضمام إلى السيرفر")
 
         if missing:
             missing_text = "\n".join(f"• {m}" for m in missing)
+            prompt = INCOMPLETE_PROMPT_AR if language_code == "ar" else INCOMPLETE_PROMPT_EN
             return (
                 RESULT_INCOMPLETE,
-                f"Thank you for your response! However, it looks like you missed or didn't clearly answer the following:\n\n{missing_text}\n\nPlease reply with your complete answers so we can review your request!"
+                prompt.format(missing_text=missing_text)
             )
 
         return (RESULT_SATISFACTORY, user_text)
 
-    def evaluate_with_llm(self, user_text: str) -> Tuple[str, str]:
+    def evaluate_with_llm(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
         Calls Groq API (free Llama-3.1-8B) or Gemini API as a SILENT BACKEND CLASSIFIER.
         The LLM never communicates with the user or generates text for the user.
