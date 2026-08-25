@@ -107,7 +107,7 @@ async def _ptb_lifecycle():
         await ptb_app.start()
 
         # Auto-register webhook with Telegram
-        pa_domain = os.environ.get("PYTHONANYWHERE_DOMAIN", "")
+        pa_domain = os.environ.get("WEBHOOK_DOMAIN", "")
         if pa_domain:
             webhook_url = f"https://{pa_domain}/webhook/{BOT_TOKEN}"
             await ptb_app.bot.set_webhook(
