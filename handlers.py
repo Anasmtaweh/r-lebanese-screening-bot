@@ -10,7 +10,6 @@ from config import (
     ADMIN_CHAT_ID,
     ADMIN_USER_IDS,
     SCREENING_QUESTIONS,
-    SCREENING_TIMEOUT_SECONDS,
     STATUS_APPROVED,
     STATUS_DECLINED,
     STATUS_DISMISSED,
@@ -100,21 +99,8 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    # 4. Schedule timeout job in JobQueue
-    if context.job_queue:
-        job_name = f"timeout_{user.id}_{chat.id}"
-        # Remove any existing timeout jobs for this user
-        current_jobs = context.job_queue.get_jobs_by_name(job_name)
-        for job in current_jobs:
-            job.schedule_removal()
-
-        context.job_queue.run_once(
-            on_timeout_job,
-            when=SCREENING_TIMEOUT_SECONDS,
-            data={"user_id": user.id, "chat_id": chat.id, "name": user.full_name},
-            name=job_name,
-        )
-        logger.info("Scheduled timeout job %s in %s seconds", job_name, SCREENING_TIMEOUT_SECONDS)
+    # 4. Timeout is handled passively — check_expired_timeouts() runs on every incoming update
+    logger.info("Session created for user %s. 48-hour timeout tracked via database.", user.id)
 
     # 5. Notify Admins with clean, short notification
     await send_admin_notification(
@@ -164,18 +150,8 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     attempt_count = database.increment_attempt_count(user.id)
 
     # Rolling 48-hour timer reset
-    if context.job_queue:
-        job_name = f"timeout_{user.id}_{chat_id}"
-        current_jobs = context.job_queue.get_jobs_by_name(job_name)
-        for job in current_jobs:
-            job.schedule_removal()
-        context.job_queue.run_once(
-            on_timeout_job,
-            when=SCREENING_TIMEOUT_SECONDS,
-            data={"user_id": user.id, "chat_id": chat_id, "name": user.full_name},
-            name=job_name,
-        )
-        logger.info("Reset rolling 48-hour timeout job %s for user %s", job_name, user.id)
+    # Timeout is handled passively — the updated_at column is refreshed by database calls above
+    logger.info("User %s replied, updated_at refreshed for rolling 48-hour timeout.", user.id)
 
     # Fix: Evaluate the FULL combined transcript, not just the latest message
     combined_replies = database.get_all_user_replies_combined(user.id)
@@ -332,44 +308,57 @@ async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
 
-async def on_timeout_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def check_expired_timeouts(bot) -> None:
     """
-    Triggered by JobQueue after SCREENING_TIMEOUT_SECONDS (48 hours by default).
-    If the user has not satisfactorily completed screening, they are dismissed,
-    join request declined, and DM messages deleted.
+    Passive timeout checker: Called on every incoming webhook update.
+    Queries the database for any PENDING/PARTIAL sessions older than 48 hours,
+    declines their join requests, deletes DM messages, and notifies admins.
     """
-    job = context.job
-    if not job or not job.data:
+    expired = database.get_expired_sessions(hours=48)
+    if not expired:
         return
 
-    user_id = job.data["user_id"]
-    chat_id = job.data["chat_id"]
-    user_name = job.data.get("name", "Unknown")
+    for session in expired:
+        user_id = session["user_id"]
+        chat_id = session["chat_id"]
 
-    session = database.get_active_session(user_id)
-    if not session:
-        return
+        # Extract user name from metadata if available
+        try:
+            import json
+            meta = json.loads(session.get("user_metadata_json") or "{}")
+            user_name = meta.get("full_name", "Unknown")
+        except Exception:
+            user_name = "Unknown"
 
-    if session["status"] in (STATUS_PENDING, STATUS_PARTIAL):
-        logger.info("Timeout fired for user %s (%s). Auto-dismissing.", user_id, user_name)
+        logger.info("Passive timeout fired for user %s (%s). Auto-dismissing.", user_id, user_name)
         database.update_session_status(user_id, STATUS_DISMISSED)
         database.add_user_history(user_id, chat_id, "DISMISSED_TIMEOUT", "Did not reply within 48 hours")
 
         # Decline join request
         try:
-            await context.bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
+            await bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
             logger.info("Auto-declined join request for user %s on timeout", user_id)
         except TelegramError as e:
             logger.error("Error declining join request on timeout for %s: %s", user_id, e)
 
         # Delete bot screening messages
-        await _delete_bot_messages(context, user_id)
+        msg_ids = database.get_bot_message_ids(user_id)
+        for msg_id in msg_ids:
+            try:
+                await bot.delete_message(chat_id=user_id, message_id=msg_id)
+            except TelegramError:
+                pass
 
-        await send_admin_notification(
-            context,
-            f"⏳ 48-Hour Timeout: User {user_name} (ID: {user_id}) did not reply in time.\n"
-            f"Their join request was automatically DECLINED and screening DM messages deleted.",
-        )
+        try:
+            await bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=(
+                    f"⏳ 48-Hour Timeout: User {user_name} (ID: {user_id}) did not reply in time.\n"
+                    f"Their join request was automatically DECLINED and screening DM messages deleted."
+                ),
+            )
+        except TelegramError as e:
+            logger.error("Could not send timeout notification to admins: %s", e)
 
 
 async def _delete_bot_messages(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
