@@ -62,10 +62,8 @@ async def ping_healthcheck(context: ContextTypes.DEFAULT_TYPE) -> None:
     if not HEALTHCHECK_URL:
         return
         
-    proxy_url = "http://proxy.server:3128" if os.environ.get("PYTHONANYWHERE_SITE") else None
     try:
-        # httpx handles the proxy dynamically if we are on PythonAnywhere
-        async with httpx.AsyncClient(proxy=proxy_url, timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             await client.get(HEALTHCHECK_URL)
             logger.debug("Successfully pinged Healthchecks.io")
     except Exception as e:
@@ -76,13 +74,11 @@ def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is missing. Fill it in your .env file.")
 
-    # 1. Initialize SQLite database
+    # 1. Initialize PostgreSQL database
     database.init_db()
 
-    # 2. Create HTTPXRequest with increased 30s timeouts and PythonAnywhere Proxy
-    # PythonAnywhere free tier requires outgoing traffic to route through their proxy.
-    proxy_url = "http://proxy.server:3128" if os.environ.get("PYTHONANYWHERE_SITE") else None
-    request = HTTPXRequest(proxy=proxy_url, connect_timeout=30.0, read_timeout=30.0)
+    # 2. Create HTTPXRequest with increased 30s timeouts
+    request = HTTPXRequest(connect_timeout=30.0, read_timeout=30.0)
 
     # 3. Build Application with JobQueue enabled
     app = Application.builder().token(BOT_TOKEN).request(request).build()
@@ -132,10 +128,21 @@ def main() -> None:
         app.job_queue.run_repeating(ping_healthcheck, interval=300, first=10)
         logger.info("Healthchecks.io heartbeat scheduled (5 min intervals)")
 
-    logger.info(
-        "R/lebanese Screening Bot is running. Waiting for join requests... (Ctrl+C to stop)"
-    )
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("R/lebanese Screening Bot is ready.")
+
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if render_url:
+        port = int(os.environ.get("PORT", "8443"))
+        logger.info(f"Running Webhook on port {port} for {render_url}")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=f"{render_url}",
+            drop_pending_updates=True
+        )
+    else:
+        logger.info("Running Polling mode (Ctrl+C to stop)")
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
