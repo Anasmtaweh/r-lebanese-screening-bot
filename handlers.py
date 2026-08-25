@@ -151,6 +151,14 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return
 
+    # Fix: Stop processing messages after user already passed screening
+    if session["status"] in (STATUS_PASSED_TO_ADMINS, STATUS_APPROVED):
+        await update.message.reply_text(
+            "Your answers have already been submitted and are under review by R/lebanese admins. "
+            "Please wait for an admin to get back to you!"
+        )
+        return
+
     chat_id = session["chat_id"]
     database.add_to_transcript(user.id, "user", user_text)
     attempt_count = database.increment_attempt_count(user.id)
@@ -169,7 +177,9 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         logger.info("Reset rolling 48-hour timeout job %s for user %s", job_name, user.id)
 
-    res_type, feedback = evaluator.evaluate(user_text)
+    # Fix: Evaluate the FULL combined transcript, not just the latest message
+    combined_replies = database.get_all_user_replies_combined(user.id)
+    res_type, feedback = evaluator.evaluate(combined_replies)
     logger.info("User %s reply attempt #%s evaluated as %s", user.id, attempt_count, res_type)
 
     history_summary = database.format_user_history_summary(user.id, chat_id)
@@ -406,7 +416,8 @@ async def on_admin_decline_command(update: Update, context: ContextTypes.DEFAULT
     Admin command: /decline <user_id> [reason]
     Sends a decline DM to the applicant, declines their join request, and deletes screening DMs.
     """
-    if not update.message or not update.message.text:
+    message = update.effective_message
+    if not message or not message.text:
         return
     if not _is_admin(update):
         return
@@ -445,23 +456,24 @@ async def on_admin_decline_command(update: Update, context: ContextTypes.DEFAULT
 async def on_admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Admin command: /stats
-    Shows screening metrics for CV/monitoring (total requests, passed, declined junk, timeout).
+    Shows overall screening statistics.
     """
-    if not update.message:
+    message = update.effective_message
+    if not message:
         return
     if not _is_admin(update):
         return
 
     stats = database.get_screening_stats()
     msg = (
-        "📊 R/lebanese Screening Statistics:\n"
+        "📊 **R/lebanese Screening Statistics**\n\n"
         f"• Total Join Requests: {stats['total_requests']}\n"
         f"• Passed Screening: {stats['passed']}\n"
         f"• Declined (Junk Reply): {stats['declined_junk']}\n"
         f"• Declined (48h Timeout): {stats['timeout']}\n"
         f"• Currently In Screening: {stats['active']}"
     )
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 async def on_admin_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -469,7 +481,8 @@ async def on_admin_list_command(update: Update, context: ContextTypes.DEFAULT_TY
     Admin command: /list <passed|junk|timeout>
     Shows a list of the last 20 users who fall into that category.
     """
-    if not update.message:
+    message = update.effective_message
+    if not message:
         return
     if not _is_admin(update):
         return
@@ -512,7 +525,8 @@ async def on_admin_transcript_command(update: Update, context: ContextTypes.DEFA
     Admin command: /transcript <user_id>
     Shows the full stored conversation transcript between the bot and the user.
     """
-    if not update.message or not update.message.text:
+    message = update.effective_message
+    if not message or not message.text:
         return
     if not _is_admin(update):
         return
@@ -537,7 +551,8 @@ async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TY
     Admin command: /help
     Shows all available admin commands and how to use them.
     """
-    if not update.message:
+    message = update.effective_message
+    if not message:
         return
     if not _is_admin(update):
         return

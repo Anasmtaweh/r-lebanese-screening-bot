@@ -272,6 +272,16 @@ def get_transcript_summary(user_id: int, db_path: Optional[str] = None) -> str:
     return "\n".join(lines)
 
 
+def get_all_user_replies_combined(user_id: int, db_path: Optional[str] = None) -> str:
+    """Returns all user replies from the transcript combined into a single text block for evaluation."""
+    session = get_session(user_id, db_path)
+    if not session:
+        return ""
+    transcript: List[Dict[str, str]] = json.loads(session["transcript_json"] or "[]")
+    user_replies = [item["text"] for item in transcript if item["role"] == "user"]
+    return "\n".join(user_replies)
+
+
 def get_screening_stats(db_path: Optional[str] = None) -> Dict[str, int]:
     """Returns overall screening statistics for CV/metrics monitoring."""
     with _get_connection(db_path) as conn:
