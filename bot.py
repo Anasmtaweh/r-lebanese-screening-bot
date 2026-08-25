@@ -137,8 +137,7 @@ def main() -> None:
         app.run_webhook(
             listen="0.0.0.0",
             port=port,
-            webhook_url=f"{render_url}",
-            drop_pending_updates=True
+            webhook_url=f"{render_url}"
         )
     else:
         logger.info("Running Polling mode (Ctrl+C to stop)")
