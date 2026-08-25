@@ -1,7 +1,7 @@
 import logging
 import re
 from typing import Optional
-from telegram import Chat, ChatMember, ChatMemberUpdated, Update
+from telegram import Chat, ChatMember, ChatMemberUpdated, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
@@ -9,7 +9,8 @@ import database
 from config import (
     ADMIN_CHAT_ID,
     ADMIN_USER_IDS,
-    SCREENING_QUESTIONS,
+    SCREENING_QUESTIONS_EN,
+    SCREENING_QUESTIONS_AR,
     SCREENING_TIMEOUT_SECONDS,
     STATUS_APPROVED,
     STATUS_DECLINED,
@@ -86,11 +87,24 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     }
     database.add_or_reset_session(user.id, chat.id, user_metadata)
 
-    # 3. Send screening questions DM to user
+    # 3. Send language selection intro message
+    intro_text = "Hello! I am the automated screening bot for R/lebanese. Please choose your language to continue:\n\nمرحباً! أنا بوت الفحص الآلي لمجتمع R/lebanese. الرجاء اختيار اللغة للمتابعة:"
+    keyboard = [
+        [
+            InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+            InlineKeyboardButton("🇱🇧 عربي", callback_data="lang_ar"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     try:
-        sent_msg = await context.bot.send_message(chat_id=user.id, text=SCREENING_QUESTIONS)
+        sent_msg = await context.bot.send_message(
+            chat_id=user.id, 
+            text=intro_text, 
+            reply_markup=reply_markup
+        )
         database.add_bot_message_id(user.id, sent_msg.message_id)
-        logger.info("Sent screening DM to user %s (message_id=%s)", user.id, sent_msg.message_id)
+        logger.info("Sent language selection DM to user %s (message_id=%s)", user.id, sent_msg.message_id)
     except TelegramError as e:
         logger.error("Could not send screening DM to user %s: %s", user.id, e)
         await send_admin_notification(
@@ -123,6 +137,29 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         f"{history_block}\n"
         f"48-hour rolling timer started.",
     )
+
+
+async def on_language_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the user clicking a language button."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+
+    user = update.effective_user
+    lang = query.data.split("_")[1]  # 'en' or 'ar'
+    
+    # Save the language preference in the database
+    database.update_session_language(user.id, lang)
+
+    # Edit the intro message to show the actual questions in the chosen language
+    questions = SCREENING_QUESTIONS_AR if lang == "ar" else SCREENING_QUESTIONS_EN
+    
+    try:
+        await query.edit_message_text(text=questions)
+        logger.info("User %s selected language '%s'", user.id, lang)
+    except Exception as e:
+        logger.error("Failed to edit language message for user %s: %s", user.id, e)
 
 
 async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -177,9 +214,14 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         logger.info("Reset rolling 48-hour timeout job %s for user %s", job_name, user.id)
 
+    # Fetch chosen language
+    import json
+    meta = json.loads(session["user_metadata_json"] or "{}")
+    lang_code = meta.get("language_code", "en")
+
     # Fix: Evaluate the FULL combined transcript, not just the latest message
     combined_replies = database.get_all_user_replies_combined(user.id)
-    res_type, feedback = evaluator.evaluate(combined_replies)
+    res_type, feedback = evaluator.evaluate(combined_replies, language_code=lang_code)
     logger.info("User %s reply attempt #%s evaluated as %s", user.id, attempt_count, res_type)
 
     history_summary = database.format_user_history_summary(user.id, chat_id)
@@ -488,12 +530,12 @@ async def on_admin_list_command(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     args = context.args or []
-    if len(args) < 1 or args[0].lower() not in ["passed", "junk", "timeout", "pending"]:
-        await update.message.reply_text("Usage: /list <passed|junk|timeout|pending>")
+    if len(args) < 1 or args[0].lower() not in ["passed", "junk", "timeout", "screening"]:
+        await update.message.reply_text("Usage: /list <passed|junk|timeout|screening>")
         return
 
     category = args[0].lower()
-    if category == "pending":
+    if category == "screening":
         users = database.get_pending_users(limit=20)
     else:
         event_map = {

@@ -17,7 +17,10 @@ from telegram import (
 
 import database
 from config import (
-    SCREENING_QUESTIONS,
+    ADMIN_USER_IDS,
+    SCREENING_QUESTIONS_EN,
+    SCREENING_TIMEOUT_SECONDS,
+    STATUS_DECLINED,
     STATUS_DISMISSED,
     STATUS_PARTIAL,
     STATUS_PASSED_TO_ADMINS,
@@ -128,10 +131,30 @@ async def run_all_simulated_tests():
     assert session["status"] == STATUS_PENDING, "Initial status must be PENDING"
     user_dms = [m for m in bot.sent_messages if m["chat_id"] == test_user.id]
     assert len(user_dms) == 1, "Should send 1 DM with screening questions to the user"
-    assert "Are you Lebanese?" in user_dms[0]["text"]
-    assert "48 hours" in user_dms[0]["text"]
+    assert "automated screening bot" in user_dms[0]["text"]
     assert len(context.job_queue.jobs) == 1, "Should schedule 1 timeout job in JobQueue"
     print("✅ Scenario 1 Passed: Session created, DM sent, and 48-hour timeout scheduled.\n")
+
+    # SIMULATE CALLBACK QUERY FOR LANGUAGE
+    class MockCallbackQuery:
+        def __init__(self, data):
+            self.data = data
+            self.message = user_dms[0]
+        async def answer(self):
+            pass
+        async def edit_message_text(self, text, *args, **kwargs):
+            self.message["text"] = text
+
+    class MockUpdate:
+        def __init__(self, callback_query, effective_user):
+            self.callback_query = callback_query
+            self.effective_user = effective_user
+
+    update_callback = MockUpdate(MockCallbackQuery("lang_en"), test_user)
+    
+    from handlers import on_language_selection
+    await on_language_selection(update_callback, context)
+    assert "Are you Lebanese?" in user_dms[0]["text"]
 
     # -------------------------------------------------------------------------
     # SCENARIO 2: Attempt 1 Incomplete -> Bot sends follow-up DM silently (no admin alert)
@@ -242,7 +265,7 @@ async def run_all_simulated_tests():
     # Verify that the screening DM was STILL sent to lazy_user on retry
     retry_dms = [m for m in bot.sent_messages if m["chat_id"] == lazy_user.id]
     assert len(retry_dms) > 0, "Bot must still send screening DM on re-application"
-    assert "Are you Lebanese?" in retry_dms[-1]["text"], "Must send screening questions"
+    assert "automated screening bot" in retry_dms[-1]["text"], "Must send screening questions"
 
     # Verify that the user's permanent history shows up correctly
     history_summary = database.format_user_history_summary(lazy_user.id, test_chat.id, test_db)

@@ -148,6 +148,25 @@ def get_session(user_id: int, db_path: Optional[str] = None) -> Optional[Dict[st
     return None
 
 
+def update_session_language(user_id: int, language_code: str, db_path: Optional[str] = None) -> None:
+    """Updates the selected language code in the user's metadata JSON."""
+    session = get_session(user_id, db_path)
+    if not session:
+        return
+    meta = json.loads(session["user_metadata_json"] or "{}")
+    meta["language_code"] = language_code
+    with _get_connection(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE screening_sessions
+            SET user_metadata_json = ?
+            WHERE user_id = ?
+            """,
+            (json.dumps(meta), user_id),
+        )
+        conn.commit()
+
+
 def get_active_session(user_id: int, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Returns an active session for the user if they are not DISMISSED."""
     with _get_connection(db_path) as conn:
@@ -334,8 +353,8 @@ def get_recent_users_by_event(event_type: str, limit: int = 50, db_path: Optiona
         return rows
 
 
-def get_pending_users(limit: int = 50, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Returns a list of users currently in PENDING or PARTIAL status."""
+def get_pending_users(limit: int = 20, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Returns the most recent users whose sessions are PENDING or PARTIAL (Currently In Screening)."""
     with _get_connection(db_path) as conn:
         cursor = conn.execute(
             """
@@ -356,4 +375,3 @@ def get_pending_users(limit: int = 50, db_path: Optional[str] = None) -> List[Di
                 r["metadata"] = {}
             rows.append(r)
         return rows
-
