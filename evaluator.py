@@ -36,6 +36,8 @@ class AnswerEvaluator:
                     RESULT_UNSATISFACTORY,
                     "User response was flagged as unsatisfactory or ineligible.",
                 )
+            if "TEST_SATISFACTORY" in text_upper:
+                return (RESULT_SATISFACTORY, user_text)
             if "TEST_INCOMPLETE" in text_upper:
                 return (
                     RESULT_INCOMPLETE,
@@ -48,8 +50,6 @@ class AnswerEvaluator:
                         "4. Why are you interested in joining?"
                     ),
                 )
-            if "TEST_SATISFACTORY" in text_upper:
-                return (RESULT_SATISFACTORY, user_text)
 
         if self.api_key:
             try:
