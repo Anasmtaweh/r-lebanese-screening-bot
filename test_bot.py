@@ -24,9 +24,9 @@ from config import (
     STATUS_PENDING,
 )
 from handlers import (
-    check_expired_timeouts,
     on_admin_relay_reply,
     on_join_request,
+    on_timeout_job,
     on_user_dm_reply,
 )
 
@@ -130,8 +130,8 @@ async def run_all_simulated_tests():
     assert len(user_dms) == 1, "Should send 1 DM with screening questions to the user"
     assert "Are you Lebanese?" in user_dms[0]["text"]
     assert "48 hours" in user_dms[0]["text"]
-    assert len(context.job_queue.jobs) == 0, "No JobQueue jobs (timeouts are now passive via database)"
-    print("✅ Scenario 1 Passed: Session created, DM sent, and 48-hour timeout tracked via database.\n")
+    assert len(context.job_queue.jobs) == 1, "Should schedule 1 timeout job in JobQueue"
+    print("✅ Scenario 1 Passed: Session created, DM sent, and 48-hour timeout scheduled.\n")
 
     # -------------------------------------------------------------------------
     # SCENARIO 2: Attempt 1 Incomplete -> Bot sends follow-up DM silently (no admin alert)
@@ -205,17 +205,9 @@ async def run_all_simulated_tests():
     # Record a fake bot message sent to lazy_user
     database.add_bot_message_id(lazy_user.id, 8888, test_db)
 
-    # Fake the updated_at timestamp to be 49 hours ago so the passive check catches it
-    from database import _get_connection
-    with _get_connection(test_db) as conn:
-        conn.execute(
-            "UPDATE screening_sessions SET updated_at = datetime('now', '-49 hours') WHERE user_id = ?",
-            (lazy_user.id,),
-        )
-        conn.commit()
-
-    # Simulate passive timeout check (runs on every webhook update)
-    await check_expired_timeouts(bot)
+    # Simulate timeout job firing for lazy_user
+    context.job = MockJob({"user_id": lazy_user.id, "chat_id": test_chat.id, "name": lazy_user.first_name})
+    await on_timeout_job(context)
 
     # Verify lazy_user is now DISMISSED
     lazy_session = database.get_active_session(lazy_user.id, test_db)
@@ -227,7 +219,7 @@ async def run_all_simulated_tests():
     ), "Join request must be declined on timeout"
     # Verify bot messages were deleted
     assert any(
-        del_msg["chat_id"] == lazy_user.id
+        del_msg["user_id" if "user_id" in del_msg else "chat_id"] == lazy_user.id
         and del_msg["message_id"] == 8888
         for del_msg in bot.deleted_messages
     ), "Screening DM messages must be deleted on timeout"
