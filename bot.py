@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import threading
 
 from flask import Flask, request, jsonify
 from telegram import Update
@@ -95,45 +94,23 @@ def build_application() -> Application:
 
 
 # ---------------------------------------------------------------------------
-# Start the async event loop in a background thread
+# Initialize PTB once at module load (no threads needed)
 # ---------------------------------------------------------------------------
 ptb_app = build_application()
-loop = asyncio.new_event_loop()
+_loop = asyncio.new_event_loop()
+_loop.run_until_complete(ptb_app.initialize())
+logger.info("PTB Application initialized.")
 
-
-async def _ptb_lifecycle():
-    """Initialize and start PTB, then keep the loop alive forever."""
-    async with ptb_app:
-        await ptb_app.start()
-
-        # Auto-register webhook with Telegram
-        pa_domain = os.environ.get("WEBHOOK_DOMAIN", "")
-        if pa_domain:
-            webhook_url = f"https://{pa_domain}/webhook/{BOT_TOKEN}"
-            await ptb_app.bot.set_webhook(
-                url=webhook_url,
-                allowed_updates=Update.ALL_TYPES,
-            )
-            logger.info("Webhook set to %s", webhook_url)
-        else:
-            logger.warning(
-                "PYTHONANYWHERE_DOMAIN not set. You must set the webhook manually "
-                "or add PYTHONANYWHERE_DOMAIN to your .env file."
-            )
-
-        # Keep loop alive indefinitely
-        await asyncio.Event().wait()
-        await ptb_app.stop()
-
-
-def _run_loop():
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(_ptb_lifecycle())
-
-
-# Start the background thread (runs once when PythonAnywhere loads the WSGI app)
-_bg_thread = threading.Thread(target=_run_loop, daemon=True)
-_bg_thread.start()
+# Auto-register webhook with Telegram on startup
+webhook_domain = os.environ.get("WEBHOOK_DOMAIN", "")
+if webhook_domain:
+    webhook_url = f"https://{webhook_domain}/webhook/{BOT_TOKEN}"
+    _loop.run_until_complete(
+        ptb_app.bot.set_webhook(url=webhook_url, allowed_updates=Update.ALL_TYPES)
+    )
+    logger.info("Webhook set to %s", webhook_url)
+else:
+    logger.warning("WEBHOOK_DOMAIN not set. Set it in your .env file.")
 
 
 # ---------------------------------------------------------------------------
@@ -144,15 +121,15 @@ flask_app = Flask(__name__)
 
 @flask_app.route(f"/webhook/{BOT_TOKEN}", methods=["POST"])
 def telegram_webhook():
-    """Receives every Telegram update as JSON, converts it, and pushes it to PTB."""
+    """Receives every Telegram update as JSON, processes it synchronously, and returns."""
     json_data = request.get_json(force=True)
     update = Update.de_json(data=json_data, bot=ptb_app.bot)
 
-    # Push update to PTB's internal queue (thread-safe)
-    asyncio.run_coroutine_threadsafe(ptb_app.update_queue.put(update), loop)
+    # Process the update synchronously (no threads)
+    _loop.run_until_complete(ptb_app.process_update(update))
 
     # Passive timeout check: sweep for any 48-hour expired sessions
-    asyncio.run_coroutine_threadsafe(check_expired_timeouts(ptb_app.bot), loop)
+    _loop.run_until_complete(check_expired_timeouts(ptb_app.bot))
 
     return jsonify({"status": "ok"}), 200
 
@@ -168,11 +145,6 @@ def health():
 if __name__ == "__main__":
     logger.info("Running in LOCAL DEV MODE with polling (not webhook).")
 
-    # Cancel the background webhook thread — we'll use polling instead
-    import signal
-    signal.alarm(0)  # no-op, just to be safe
-
-    # Build a fresh application with polling support
     from telegram.request import HTTPXRequest
 
     database.init_db()
