@@ -40,3 +40,6 @@ STATUS_PASSED_TO_ADMINS = "PASSED_TO_ADMINS"
 STATUS_APPROVED = "APPROVED"
 STATUS_DECLINED = "DECLINED"
 STATUS_DISMISSED = "DISMISSED"
+
+# Healthchecks.io Ping URL for uptime monitoring
+HEALTHCHECK_URL = os.getenv("HEALTHCHECK_URL", "https://hc-ping.com/edc16fdc-dcb4-4daa-9548-48c8e76d0cd4")

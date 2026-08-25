@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 import os
 from telegram import Update
 from telegram.ext import (
@@ -11,9 +12,10 @@ from telegram.ext import (
     filters,
 )
 from telegram.request import HTTPXRequest
+import httpx
 
 import database
-from config import BOT_TOKEN
+from config import BOT_TOKEN, HEALTHCHECK_URL
 from handlers import (
     on_admin_decline_command,
     on_admin_help_command,
@@ -27,10 +29,17 @@ from handlers import (
     on_user_dm_reply,
 )
 
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+# Persistent file logging — survives crashes, always available on PythonAnywhere
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screening_bot.log")
+log_handler = logging.handlers.RotatingFileHandler(
+    LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3  # 5MB per file, keep 3 backups
 )
+log_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+
+logging.basicConfig(level=logging.INFO, handlers=[log_handler, console_handler])
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +53,21 @@ async def cmd_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             parse_mode="Markdown",
         )
         logger.info("Chat ID requested for %s -> %s", chat.title, chat.id)
+
+
+async def ping_healthcheck(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Pings Healthchecks.io every 5 minutes to prove the bot is alive."""
+    if not HEALTHCHECK_URL:
+        return
+        
+    proxy_url = "http://proxy.server:3128" if os.environ.get("PYTHONANYWHERE_SITE") else None
+    try:
+        # httpx handles the proxy dynamically if we are on PythonAnywhere
+        async with httpx.AsyncClient(proxy=proxy_url, timeout=10.0) as client:
+            await client.get(HEALTHCHECK_URL)
+            logger.debug("Successfully pinged Healthchecks.io")
+    except Exception as e:
+        logger.warning("Failed to ping Healthchecks.io: %s", e)
 
 
 def main() -> None:
@@ -97,6 +121,11 @@ def main() -> None:
         ),
         group=2,
     )
+
+    # Start Healthcheck heartbeat job (runs every 300 seconds = 5 minutes)
+    if app.job_queue:
+        app.job_queue.run_repeating(ping_healthcheck, interval=300, first=10)
+        logger.info("Healthchecks.io heartbeat scheduled (5 min intervals)")
 
     logger.info(
         "R/lebanese Screening Bot is running. Waiting for join requests... (Ctrl+C to stop)"
