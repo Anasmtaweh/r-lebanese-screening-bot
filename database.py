@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from typing import Any, Dict, List, Optional
-from config import STATUS_PENDING, STATUS_DISMISSED
+from config import STATUS_PENDING, STATUS_PARTIAL, STATUS_DISMISSED
 
 DB_PATH = "screening.db"
 
@@ -163,6 +163,20 @@ def get_active_session(user_id: int, db_path: Optional[str] = None) -> Optional[
         if row:
             return dict(row)
     return None
+
+
+def get_expired_sessions(hours: int = 48, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Returns all pending/partial sessions that have not been updated in the last N hours."""
+    with _get_connection(db_path) as conn:
+        cursor = conn.execute(
+            """
+            SELECT * FROM screening_sessions
+            WHERE status IN (?, ?)
+            AND updated_at <= datetime('now', ?)
+            """,
+            (STATUS_PENDING, STATUS_PARTIAL, f"-{hours} hours"),
+        )
+        return [dict(row) for row in cursor.fetchall()]
 
 
 def update_session_status(
