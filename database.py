@@ -296,11 +296,14 @@ def get_transcript_summary(user_id: int) -> str:
     transcript: List[Dict[str, str]] = json.loads(session["transcript_json"] or "[]")
     if not transcript:
         return "*(User has not sent any replies yet)*"
-    lines = ["💬 Full 2-Attempt Conversation Transcript:"]
+    lines = ["💬 *Full 2-Attempt Conversation Transcript:*"]
     for i, item in enumerate(transcript, 1):
-        role_label = "👤 User Reply" if item["role"] == "user" else "🤖 Bot Follow-up"
-        lines.append(f"  [{role_label} #{i}]: \"{item['text']}\"")
-    return "\n".join(lines)
+        if item["role"] == "user":
+            safe_text = item['text'].replace('\n', '\n> ')
+            lines.append(f"👤 **User Reply #{i}:**\n> {safe_text}")
+        else:
+            lines.append(f"🤖 **Bot:** *(Sent follow-up prompt)*")
+    return "\n\n".join(lines)
 
 
 def get_all_user_replies_combined(user_id: int) -> str:
