@@ -329,6 +329,9 @@ def get_screening_stats() -> Dict[str, int]:
             cur.execute("SELECT COUNT(*) as c FROM user_history WHERE event_type = 'DISMISSED_TIMEOUT'")
             timeout = cur.fetchone()["c"] or 0
 
+            cur.execute("SELECT COUNT(*) as c FROM user_history WHERE event_type = 'APPROVED_JOINED'")
+            accepted = cur.fetchone()["c"] or 0
+
             cur.execute("SELECT COUNT(*) as c FROM screening_sessions WHERE status IN (%s, %s)", ("PENDING", "PARTIAL"))
             active = cur.fetchone()["c"] or 0
 
@@ -337,6 +340,7 @@ def get_screening_stats() -> Dict[str, int]:
                 "passed": passed,
                 "declined_junk": declined_junk,
                 "timeout": timeout,
+                "accepted": accepted,
                 "active": active,
             }
 
