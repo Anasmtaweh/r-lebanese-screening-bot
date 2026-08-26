@@ -54,17 +54,17 @@ To run this bot, you need the following environment variables set (in Render or 
 
 ```ini
 # Core
-BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-AI_API_KEY="gsk_YourGroqApiKeyHere"
-DATABASE_URL="postgresql://postgres.xxx:password@aws-0-eu-central-1.pooler.supabase.com:6543/postgres"
+BOT_TOKEN="<YOUR_TELEGRAM_BOT_TOKEN>"
+AI_API_KEY="<YOUR_GROQ_API_KEY>"
+DATABASE_URL="<YOUR_POSTGRESQL_CONNECTION_STRING>"
 
 # Admin Config
-ADMIN_CHAT_ID="-1001234567890"
-ADMIN_USER_IDS="123456789,987654321"
+ADMIN_CHAT_ID="<YOUR_ADMIN_GROUP_CHAT_ID>"
+ADMIN_USER_IDS="<ADMIN_1_USER_ID>,<ADMIN_2_USER_ID>"
 
-# Webhooks & Monitoring
-RENDER_EXTERNAL_URL="https://your-bot-name.onrender.com"
-HEALTHCHECK_URL="https://hc-ping.com/your-uuid"
+# Webhooks & Monitoring (Optional for local testing)
+RENDER_EXTERNAL_URL="<YOUR_RENDER_URL>"
+HEALTHCHECK_URL="<YOUR_HEALTHCHECK_URL>"
 ```
 
 ### 2. Running Locally (Polling Mode)
