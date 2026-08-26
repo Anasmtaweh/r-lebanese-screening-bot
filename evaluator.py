@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from typing import Tuple
 import httpx
 from config import INCOMPLETE_PROMPT_EN, INCOMPLETE_PROMPT_AR
@@ -64,6 +65,19 @@ class AnswerEvaluator:
         """
         text_lower = user_text.strip().lower()
 
+        # 1. Check for Hebrew characters or Zionist/Israeli keywords
+        if re.search(r'[\u0590-\u05FF]', user_text):
+            return (
+                RESULT_UNSATISFACTORY,
+                "⚠️ FLAGGED: User replied in Hebrew. Requires admin review.",
+            )
+        zionist_keywords = ["israel", "israeli", "zionist", "zionism", "tel aviv", "idf", "צהל", "ישראל", "ישראלי", "ציוני", "صهيوني", "صهيونية", "اسرائيلي", "إسرائيلي", "إسرائيل", "اسرائيل"]
+        if any(kw in text_lower for kw in zionist_keywords):
+            return (
+                RESULT_UNSATISFACTORY,
+                "⚠️ FLAGGED: User mentioned Israel/Zionist affiliation. Requires admin review.",
+            )
+
         # 2. Check for obvious under-age indicators
         words = text_lower.split()
         if "not 18" in text_lower or "under 18" in text_lower or "17" in words or "16" in words or "15" in words:
@@ -121,11 +135,12 @@ class AnswerEvaluator:
             "CRITICAL RULES:\n"
             "1. JUNK vs INCOMPLETE: If the user did NOT genuinely answer ANY of the 4 screening questions (e.g. 'yes yes yes', 'ok hello', 'who you are', or spam), you MUST return JUNK!\n"
             "2. ANTI-LENIENCY: Only return INCOMPLETE if they genuinely answered AT LEAST ONE question (e.g., 'Lebanese, 22') but missed others. If any of the 4 questions is missing, you MUST return INCOMPLETE and NOT SATISFACTORY.\n"
-            "3. DIALECTS: Accept answers in English, Arabic, or Lebanese Franco-Arabic dialect. You MUST understand Arabic words like 'نعم' (Yes) or 'تيليغرام' (Telegram).\n\n"
+            "3. DIALECTS: Accept answers in English, Arabic, or Lebanese Franco-Arabic dialect. You MUST understand Arabic words like 'نعم' (Yes) or 'تيليغرام' (Telegram).\n"
+            "4. HEBREW/ZIONIST: If the user writes in Hebrew script, mentions Israel as their country, or identifies as Zionist/Israeli, you MUST return UNSATISFACTORY immediately. This is an anti-Zionist community.\n\n"
             f"User Reply:\n\"\"\"{user_text}\"\"\"\n\n"
             "Reply with exactly ONE line:\n"
             "- SATISFACTORY (if all 4 questions are explicitly answered)\n"
-            "- UNSATISFACTORY (ONLY if the user indicates their age is UNDER 18, e.g. 15, 16, 17, or abusive)\n"
+            "- UNSATISFACTORY (if the user is under 18, writes in Hebrew, or identifies as Israeli/Zionist)\n"
             "- JUNK (if 0 questions were answered, e.g. 'who you are', 'yes yes yes', 'ok hello', 'hello')\n"
             "- INCOMPLETE | <missing_numbers> (if 1-3 questions were answered, list ONLY the missing numbers separated by commas, e.g., 'INCOMPLETE | 3, 4')"
         )
