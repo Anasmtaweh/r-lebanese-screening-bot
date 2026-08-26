@@ -296,19 +296,20 @@ def get_transcript_summary(user_id: int) -> str:
     transcript: List[Dict[str, str]] = json.loads(session["transcript_json"] or "[]")
     if not transcript:
         return "*(User has not sent any replies yet)*"
-    lines = ["💬 *Full 2-Attempt Conversation Transcript:*"]
+    lines = ["💬 _Full Conversation Transcript:_"]
+    reply_num = 0
     for i, item in enumerate(transcript, 1):
         if item["role"] == "user":
-            safe_text = item['text'].replace('\n', '\n> ')
-            lines.append(f"👤 **User Reply #{i}:**\n> {safe_text}")
+            reply_num += 1
+            safe_text = item['text'].replace('*', '').replace('_', '').replace('`', '')
+            lines.append(f"👤 *User Reply #{reply_num}:*\n「{safe_text}」")
         else:
             bullet_lines = [line.strip() for line in item['text'].split('\n') if line.strip().startswith('•')]
             if bullet_lines:
                 bullets = '\n'.join(f"  {line}" for line in bullet_lines)
-                lines.append(f"🤖 **Bot:** *(Asked for missing info)*\n{bullets}")
+                lines.append(f"🤖 _Bot asked for:_\n{bullets}")
             else:
-                safe_bot_text = item['text'].replace('\n', '\n> ')
-                lines.append(f"🤖 **Bot:**\n> {safe_bot_text}")
+                lines.append(f"🤖 _Bot: (sent follow-up prompt)_")
     return "\n\n".join(lines)
 
 
