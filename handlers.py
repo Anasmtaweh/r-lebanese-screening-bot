@@ -1,5 +1,6 @@
 import logging
 import re
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from telegram import Chat, ChatMember, ChatMemberUpdated, Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -38,6 +39,20 @@ def _is_admin(update: Update) -> bool:
     if not user:
         return False
     return user.id in ADMIN_USER_IDS
+
+
+def _format_user_string(target_user_id: int) -> str:
+    """Helper to return a string like 'John (@john123) (ID: 12345)' if metadata exists."""
+    session = database.get_session(target_user_id)
+    if not session:
+        return str(target_user_id)
+    try:
+        meta = json.loads(session.get("user_metadata_json") or "{}")
+        name = meta.get("full_name") or "Unknown"
+        username = f" (@{meta.get('username')})" if meta.get("username") else ""
+        return f"{name}{username} (ID: {target_user_id})"
+    except Exception:
+        return str(target_user_id)
 
 
 async def send_admin_notification(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
@@ -465,8 +480,9 @@ async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_T
         )
         keyboard = [[InlineKeyboardButton("Undo ↩️", callback_data=f"undo_{target_user_id}_{sent_msg.message_id}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
+        user_str = _format_user_string(target_user_id)
         await update.message.reply_text(
-            f"✅ Sent DM to user {target_user_id}.",
+            f"✅ Sent DM to user {user_str}.",
             reply_markup=reply_markup
         )
         logger.info("Admin command /reply sent to %s", target_user_id)
@@ -513,7 +529,8 @@ async def on_admin_decline_command(update: Update, context: ContextTypes.DEFAULT
 
     await _delete_bot_messages(context, target_user_id)
     database.update_session_status(target_user_id, STATUS_DISMISSED)
-    await update.message.reply_text(f"🚫 User {target_user_id} declined & messages deleted.")
+    user_str = _format_user_string(target_user_id)
+    await update.message.reply_text(f"🚫 User {user_str} declined & messages deleted.")
 
 
 async def on_admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -606,7 +623,8 @@ async def on_admin_transcript_command(update: Update, context: ContextTypes.DEFA
         await update.message.reply_text(f"No conversation transcript found for user ID {target_user_id}.")
         return
         
-    await update.message.reply_text(f"📄 Transcript for {target_user_id}:\n\n{transcript_text}")
+    user_str = _format_user_string(target_user_id)
+    await update.message.reply_text(f"📄 Transcript for {user_str}:\n\n{transcript_text}")
 
 
 async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
