@@ -29,6 +29,21 @@ class AnswerEvaluator:
         Main entry point for evaluating a user's reply.
         Prioritizes LLM if available, falls back to rule-based.
         """
+        # HARD GATE: Hebrew/Zionist detection runs BEFORE everything else.
+        # This cannot be bypassed by the AI, test mode, or any other code path.
+        if re.search(r'[\u0590-\u05FF]', user_text):
+            return (
+                RESULT_UNSATISFACTORY,
+                "⚠️ FLAGGED: User replied in Hebrew. Requires admin review.",
+            )
+        text_lower = user_text.strip().lower()
+        zionist_keywords = ["israel", "israeli", "zionist", "zionism", "tel aviv", "idf", "צהל", "ישראל", "ישראלי", "ציוני", "صهيوني", "صهيونية", "اسرائيلي", "إسرائيلي", "إسرائيل", "اسرائيل"]
+        if any(kw in text_lower for kw in zionist_keywords):
+            return (
+                RESULT_UNSATISFACTORY,
+                "⚠️ FLAGGED: User mentioned Israel/Zionist affiliation. Requires admin review.",
+            )
+
         if self.test_mode:
             text_upper = user_text.strip().upper()
             if "TEST_JUNK" in text_upper:
