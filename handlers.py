@@ -61,7 +61,7 @@ async def send_admin_notification(context: ContextTypes.DEFAULT_TYPE, text: str)
         logger.info("[ADMIN_NOTIFY_SKIP] ADMIN_CHAT_ID not set. Message: %s", text)
         return
     try:
-        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=text)
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="Markdown")
     except TelegramError as e:
         logger.warning("Failed to send admin notification: %s", e)
 
@@ -243,7 +243,6 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.info("Reset rolling 48-hour timeout job %s for user %s", job_name, user.id)
 
     # Fetch chosen language
-    import json
     meta = json.loads(session["user_metadata_json"] or "{}")
     lang_code = meta.get("language_code", "en")
 
@@ -327,11 +326,9 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # Notify Admins with the user's junk reply
         await send_admin_notification(
             context,
-            f"🗑️ Automatically Declined: Junk Reply\n"
-            f"User: {user.full_name} (@{user.username} | ID: {user.id})\n"
-            f"Chat ID: {chat_id}"
-            f"{history_block}\n\n"
-            f"Their Reply: \"{user_text}\"",
+            f"🗑️ *Automatically Declined: Junk Reply*\n"
+            f"👤 **User:** {user.full_name} (@{user.username} | ID: `{user.id}`)\n\n"
+            f"💬 *Their Reply:* \"{user_text}\"",
         )
 
 
