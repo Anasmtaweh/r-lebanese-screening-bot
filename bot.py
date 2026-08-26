@@ -28,6 +28,7 @@ from handlers import (
     on_chat_member_updated,
     on_join_request,
     on_language_selection,
+    undo_callback,
     on_user_dm_reply,
 )
 
@@ -99,6 +100,9 @@ def main() -> None:
 
     # Language Selection Callback Handler
     app.add_handler(CallbackQueryHandler(on_language_selection, pattern="^lang_"))
+
+    # Undo Admin Reply Callback Handler
+    app.add_handler(CallbackQueryHandler(undo_callback, pattern="^undo_"))
 
     # Chat Member Status Handler (Tracks when users join or leave the group)
     app.add_handler(

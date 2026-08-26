@@ -1,7 +1,7 @@
-# Secrets (excluding .env for private repo convenience)
+# Secrets
+.env
 *.key
 *.pem
-
 # Database files
 *.db
 *.sqlite
