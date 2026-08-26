@@ -3,6 +3,7 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from typing import Any, Dict, List, Optional
+from contextlib import contextmanager
 from config import STATUS_PENDING, STATUS_DISMISSED
 
 def get_db_url() -> str:
@@ -10,11 +11,14 @@ def get_db_url() -> str:
     load_dotenv()
     return os.environ.get("DATABASE_URL", "")
 
+@contextmanager
 def _get_connection():
     # We create a new connection per request. For high traffic, a connection pool is better.
     conn = psycopg2.connect(get_db_url(), cursor_factory=RealDictCursor)
-    # Autocommit is false by default in psycopg2, which is good.
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 def init_db() -> None:
     """Initializes the PostgreSQL database tables for screening sessions."""

@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from telegram import Chat, ChatMember, ChatMemberUpdated, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
@@ -77,6 +78,18 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # 1. Check permanent history summary
     history_summary = database.format_user_history_summary(user.id, chat.id)
     history_block = f"\n\n{history_summary}" if history_summary else "\n\n✨ First-time applicant."
+
+    # 1.5. Debounce check: prevent duplicate DMs if Telegram retries a webhook during cold start
+    existing_session = database.get_session(user.id)
+    if existing_session and existing_session.get("status") == "PENDING":
+        updated_at = existing_session.get("updated_at")
+        if updated_at:
+            # psycopg2 datetime is naive if timezone not set, treat as UTC since CURRENT_TIMESTAMP is UTC in PG
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - updated_at < timedelta(minutes=2):
+                logger.info(f"Debouncing duplicate join request for user {user.id}")
+                return
 
     # 2. Initialize SQLite session with user metadata for future AI training
     user_metadata = {
@@ -359,12 +372,15 @@ async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYP
     admin_text = update.message.text
 
     try:
-        await context.bot.send_message(
+        sent_msg = await context.bot.send_message(
             chat_id=target_user_id,
             text=f"💬 Message from R/lebanese Admin:\n\n{admin_text}",
         )
+        keyboard = [[InlineKeyboardButton("Undo ↩️", callback_data=f"undo_{target_user_id}_{sent_msg.message_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            f"✅ Your message has been relayed to user ID {target_user_id}."
+            f"✅ Your message has been relayed to user ID {target_user_id}.",
+            reply_markup=reply_markup
         )
         logger.info("Admin relayed message to user %s", target_user_id)
     except TelegramError as e:
@@ -443,11 +459,16 @@ async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_T
     target_user_id = int(args[0])
     msg_text = " ".join(args[1:])
     try:
-        await context.bot.send_message(
+        sent_msg = await context.bot.send_message(
             chat_id=target_user_id,
             text=f"💬 Message from R/lebanese Admin:\n\n{msg_text}",
         )
-        await update.message.reply_text(f"✅ Sent DM to user {target_user_id}.")
+        keyboard = [[InlineKeyboardButton("Undo ↩️", callback_data=f"undo_{target_user_id}_{sent_msg.message_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"✅ Sent DM to user {target_user_id}.",
+            reply_markup=reply_markup
+        )
         logger.info("Admin command /reply sent to %s", target_user_id)
     except TelegramError as e:
         await update.message.reply_text(f"❌ Could not send DM to {target_user_id}: {e}")
@@ -614,3 +635,35 @@ async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TY
     
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
+
+async def undo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Callback handler for the [Undo] button on admin replies.
+    Deletes the specific message from the user's DM.
+    """
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    # Security: only allow admins to undo
+    if not _is_admin(update):
+        await query.answer("Unauthorized.", show_alert=True)
+        return
+
+    # Extract user_id and msg_id from "undo_12345_67890"
+    parts = query.data.split("_")
+    if len(parts) != 3:
+        await query.answer("Invalid undo data.")
+        return
+        
+    target_user_id = int(parts[1])
+    target_msg_id = int(parts[2])
+
+    try:
+        await context.bot.delete_message(chat_id=target_user_id, message_id=target_msg_id)
+        await query.answer("Message deleted from user's DM.")
+        await query.edit_message_text(f"🗑️ Message successfully undone/deleted from user {target_user_id}.")
+        logger.info(f"Admin undone message {target_msg_id} for user {target_user_id}")
+    except TelegramError as e:
+        logger.error(f"Failed to undo message: {e}")
+        await query.answer(f"Could not delete message: {e}", show_alert=True)

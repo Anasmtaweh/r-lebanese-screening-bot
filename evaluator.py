@@ -72,8 +72,8 @@ class AnswerEvaluator:
                 "User indicated they are under 18 years old.",
             )
 
-        # 3. Check for extremely short or lazy answers (e.g. "yes yes yes from Google to no people")
-        if len(words) < 12:
+        # 3. Check for extremely short or lazy answers (e.g. "yes" or "ok")
+        if len(words) < 4:
             prompt = INCOMPLETE_PROMPT_AR if language_code == "ar" else INCOMPLETE_PROMPT_EN
             return (
                 RESULT_INCOMPLETE,
@@ -81,10 +81,10 @@ class AnswerEvaluator:
             )
 
         # 4. Question-by-Question Coverage Heuristic:
-        has_lebanese = any(kw in text_lower for kw in ["yes", "lebanese", "lebanon", "beirut", "lb", "am lebanese"])
-        has_age = any(kw in text_lower for kw in ["18", "19", "20", "21", "22", "23", "24", "25", "30", "years", "old", "over 18"])
-        has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub"])
-        has_reason = any(kw in text_lower for kw in ["community", "people", "talk", "chat", "discuss", "news", "join", "friends", "connect", "know", "live"])
+        has_lebanese = any(kw in text_lower for kw in ["yes", "lebanese", "lebanon", "beirut", "lb", "am lebanese", "نعم", "اي", "يب", "أجل", "لبناني", "لبنان", "بيروت"])
+        has_age = any(kw in text_lower for kw in ["18", "19", "20", "21", "22", "23", "24", "25", "30", "years", "old", "over 18", "عشرين", "سنة", "عمري", "عام", "عمر"])
+        has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub", "ريدت", "قوقل", "جوجل", "صديق", "صاحبي", "بحث", "صدفة", "تيك توك", "تليجرام", "رابط"])
+        has_reason = any(kw in text_lower for kw in ["community", "people", "talk", "chat", "discuss", "news", "join", "friends", "connect", "know", "live", "اتحدث", "شات", "تعارف", "دردشة", "انضمام", "انضم", "استمتع", "سبب", "تفاعل", "فضول", "شوف", "اشوف", "حابب"])
 
         missing = []
         if not has_lebanese:
@@ -142,7 +142,7 @@ class AnswerEvaluator:
                     "Content-Type": "application/json",
                 }
                 payload = {
-                    "model": "llama-3.1-8b-instant",
+                    "model": "llama3-8b-8192",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.0,
                     "max_tokens": 15,
@@ -176,10 +176,10 @@ class AnswerEvaluator:
         else:
             # Parse missing question numbers from token (e.g., "INCOMPLETE | 2, 4")
             questions_map = {
-                1: "1. Are you Lebanese?",
-                2: "2. Are you 18 or over?",
-                3: "3. How did you find out about our server?",
-                4: "4. Why are you interested in joining?",
+                1: "1. Whether you are Lebanese / هل أنت لبناني",
+                2: "2. Whether you are 18 or older / هل عمرك 18 سنة أو أكثر",
+                3: "3. How you found out about our server / كيف عرفت عن السيرفر",
+                4: "4. Why you are interested in joining / لماذا تريد الانضمام إلى السيرفر",
             }
             missing_nums = []
             for char in reply_token:
@@ -190,13 +190,11 @@ class AnswerEvaluator:
             if not missing_nums:
                 missing_nums = [1, 2, 3, 4]
             missing_nums.sort()
-            missing_lines = "\n".join(f"• {questions_map[n]}" for n in missing_nums)
-
+            
+            missing_text = "\n".join(f"• {questions_map[n]}" for n in missing_nums)
+            prompt = INCOMPLETE_PROMPT_AR if language_code == "ar" else INCOMPLETE_PROMPT_EN
+            
             return (
                 RESULT_INCOMPLETE,
-                (
-                    "Thank you for replying! However, it looks like we still need your answer for:\n\n"
-                    f"{missing_lines}\n\n"
-                    "Please reply with your answers so we can review your request!"
-                ),
+                prompt.format(missing_text=missing_text),
             )
