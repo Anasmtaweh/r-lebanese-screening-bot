@@ -264,9 +264,9 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         transcript_text = database.get_transcript_summary(user.id)
         admin_report = (
             f"📋 *Satisfactory Screening Reply*\n"
-            f"👤 **User:** {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
-            f"💬 *Transcript:*\n\n{transcript_text}\n\n"
-            f"💡 *Action:* Use `/reply {user.id} <msg>` or approve/decline manually in Telegram."
+            f"👤 {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
+            f"{transcript_text}\n\n"
+            f"💡 Use `/reply {user.id} <msg>` or approve/decline in Telegram."
         )
         await send_admin_notification(context, admin_report)
 
@@ -292,9 +292,9 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await send_admin_notification(
                 context,
                 f"📋 *Screening Report (Needs Admin Attention)*\n"
-                f"👤 **User:** {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
-                f"💬 *Transcript:*\n\n{transcript_text}\n\n"
-                f"💡 *Action:* Use `/reply {user.id} <msg>` or `/decline {user.id}`.",
+                f"👤 {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
+                f"{transcript_text}\n\n"
+                f"💡 Use `/reply {user.id} <msg>` or `/decline {user.id}`.",
             )
 
     elif res_type == RESULT_UNSATISFACTORY:
@@ -305,10 +305,10 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
         await send_admin_notification(
             context,
-            f"⚠️ *Flagged Screening Reply (Under 18 / Review Needed)*\n"
-            f"👤 **User:** {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
-            f"💬 *Transcript:*\n\n{transcript_text}\n\n"
-            f"💡 *Action:* Please review manually. Use `/reply {user.id} <msg>` or `/decline {user.id}`.",
+            f"⚠️ *Flagged Screening Reply (Review Needed)*\n"
+            f"👤 {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
+            f"{transcript_text}\n\n"
+            f"💡 Please review. Use `/reply {user.id} <msg>` or `/decline {user.id}`.",
         )
 
     elif res_type == RESULT_JUNK:
@@ -327,8 +327,8 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await send_admin_notification(
             context,
             f"🗑️ *Automatically Declined: Junk Reply*\n"
-            f"👤 **User:** {user.full_name} (@{user.username} | ID: `{user.id}`)\n\n"
-            f"💬 *Their Reply:* \"{user_text}\"",
+            f"👤 {user.full_name} (@{user.username} | ID: `{user.id}`)\n\n"
+            f"💬 Their Reply: \"{user_text}\"",
         )
 
 
