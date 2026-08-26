@@ -22,7 +22,7 @@ ADMIN_USER_IDS = [
 # Exactly the screening paragraph requested by R/lebanese admins
 SCREENING_QUESTIONS_EN = """Hello! R/lebanese admins here.
 
-1. Are you Lebanese?
+1. Are you Lebanese? If not, what country are you from?
 
 2. Are you 18 or over?
 
@@ -30,11 +30,13 @@ SCREENING_QUESTIONS_EN = """Hello! R/lebanese admins here.
 
 4. Why are you interested in joining our server?
 
-Please note that not answering in 48 hours will result in request declining."""
+⚠️ Answering all questions is mandatory for your request to be reviewed.
+Please note that not answering in 48 hours will result in request declining.
+By joining, you agree to follow the group rules."""
 
 SCREENING_QUESTIONS_AR = """مرحباً! إدارة مجتمع R/lebanese هنا.
 
-1. هل أنت لبناني؟
+1. هل أنت لبناني؟ إذا لا، من أي بلد أنت؟
 
 2. هل عمرك 18 سنة أو أكثر؟
 
@@ -42,7 +44,9 @@ SCREENING_QUESTIONS_AR = """مرحباً! إدارة مجتمع R/lebanese هن�
 
 4. لماذا تريد الانضمام إلى السيرفر؟
 
-ملاحظة: عدم الإجابة خلال 48 ساعة سيؤدي إلى رفض الطلب."""
+⚠️ الإجابة على جميع الأسئلة إلزامية لمراجعة طلبك.
+ملاحظة: عدم الإجابة خلال 48 ساعة سيؤدي إلى رفض الطلب.
+بانضمامك، أنت توافق على اتباع قوانين المجموعة."""
 
 INCOMPLETE_PROMPT_EN = "Thank you for your response! However, it looks like you missed or didn't clearly answer the following:\n\n{missing_text}\n\nPlease reply with your complete answers so we can review your request!"
 

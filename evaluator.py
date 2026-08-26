@@ -81,14 +81,14 @@ class AnswerEvaluator:
             )
 
         # 4. Question-by-Question Coverage Heuristic:
-        has_lebanese = any(kw in text_lower for kw in ["yes", "lebanese", "lebanon", "beirut", "lb", "am lebanese", "نعم", "اي", "يب", "أجل", "لبناني", "لبنان", "بيروت"])
+        has_nationality = any(kw in text_lower for kw in ["yes", "lebanese", "lebanon", "beirut", "lb", "am lebanese", "نعم", "اي", "يب", "أجل", "لبناني", "لبنانية", "لبنان", "بيروت", "no", "not lebanese", "from", "country", "syrian", "iraqi", "egyptian", "jordanian", "palestinian", "iranian", "سوري", "عراقي", "مصري", "أردني", "فلسطيني", "إيراني", "إيرانية", "سورية", "مصرية", "بلد", "جنسية", "من"])
         has_age = any(kw in text_lower for kw in ["18", "19", "20", "21", "22", "23", "24", "25", "30", "years", "old", "over 18", "عشرين", "سنة", "عمري", "عام", "عمر"])
-        has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub", "ريدت", "قوقل", "جوجل", "صديق", "صاحبي", "بحث", "صدفة", "تيك توك", "تليجرام", "رابط"])
+        has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub", "ريدت", "قوقل", "جوجل", "صديق", "صاحبي", "بحث", "صدفة", "تيك توك", "تليجرام", "تيليغرام", "رابط"])
         has_reason = any(kw in text_lower for kw in ["community", "people", "talk", "chat", "discuss", "news", "join", "friends", "connect", "know", "live", "اتحدث", "شات", "تعارف", "دردشة", "انضمام", "انضم", "استمتع", "سبب", "تفاعل", "فضول", "شوف", "اشوف", "حابب"])
 
         missing = []
-        if not has_lebanese:
-            missing.append("1. Whether you are Lebanese / هل أنت لبناني")
+        if not has_nationality:
+            missing.append("1. Your nationality / جنسيتك")
         if not has_age:
             missing.append("2. Whether you are 18 or older / هل عمرك 18 سنة أو أكثر")
         if not has_source:
@@ -114,7 +114,7 @@ class AnswerEvaluator:
         """
         prompt = (
             "Analyze if the user answered ALL 4 screening questions:\n"
-            "1. Are you Lebanese?\n"
+            "1. Are you Lebanese? If not, what country are you from? (Any nationality is accepted, we just need to know)\n"
             "2. Are you 18 or older? (A simple 'Yes', 'نعم', or an age >= 18 is acceptable)\n"
             "3. How did you find out about our server? (e.g. Telegram, Reddit, a friend, search)\n"
             "4. Why are you interested in joining?\n\n"
@@ -176,7 +176,7 @@ class AnswerEvaluator:
         else:
             # Parse missing question numbers from token (e.g., "INCOMPLETE | 2, 4")
             questions_map = {
-                1: "1. Whether you are Lebanese / هل أنت لبناني",
+                1: "1. Your nationality / جنسيتك",
                 2: "2. Whether you are 18 or older / هل عمرك 18 سنة أو أكثر",
                 3: "3. How you found out about our server / كيف عرفت عن السيرفر",
                 4: "4. Why you are interested in joining / لماذا تريد الانضمام إلى السيرفر",
