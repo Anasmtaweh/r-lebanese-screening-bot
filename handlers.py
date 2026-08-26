@@ -549,6 +549,7 @@ async def on_admin_stats_command(update: Update, context: ContextTypes.DEFAULT_T
         "📊 **R/lebanese Screening Statistics**\n\n"
         f"• Total Join Requests: {stats['total_requests']}\n"
         f"• Passed Screening: {stats['passed']}\n"
+        f"• Accepted into Group: {stats['accepted']}\n"
         f"• Declined (Junk Reply): {stats['declined_junk']}\n"
         f"• Declined (48h Timeout): {stats['timeout']}\n"
         f"• Currently In Screening: {stats['active']}"
@@ -568,18 +569,19 @@ async def on_admin_list_command(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     args = context.args or []
-    if len(args) < 1 or args[0].lower() not in ["passed", "junk", "timeout", "screening"]:
-        await update.message.reply_text("Usage: /list <passed|junk|timeout|screening>")
+    if len(args) < 1 or args[0].lower() not in ["passed", "junk", "timeout", "screening", "pending", "accepted"]:
+        await update.message.reply_text("Usage: /list <passed|junk|timeout|pending|accepted>")
         return
 
     category = args[0].lower()
-    if category == "screening":
+    if category in ("screening", "pending"):
         users = database.get_pending_users(limit=20)
     else:
         event_map = {
             "passed": "PASSED_SCREENING",
             "junk": "DECLINED_JUNK",
-            "timeout": "DISMISSED_TIMEOUT"
+            "timeout": "DISMISSED_TIMEOUT",
+            "accepted": "APPROVED_JOINED"
         }
         event_type = event_map[category]
         users = database.get_recent_users_by_event(event_type, limit=20)
@@ -644,8 +646,9 @@ async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TY
         "• `/stats` - View overall screening numbers (passed, pending, declined, etc.)\n"
         "• `/list <category>` - View the last 20 users in a specific category.\n"
         "   *Examples:*\n"
-        "   👉 `/list passed` (Users who passed successfully)\n"
         "   👉 `/list pending` (Users currently answering questions)\n"
+        "   👉 `/list passed` (Users who passed successfully)\n"
+        "   👉 `/list accepted` (Users formally accepted into the group)\n"
         "   👉 `/list junk` (Users declined for spam/junk)\n"
         "   👉 `/list timeout` (Users who didn't answer in 48h)\n"
         "• `/transcript <user_id>` - Read the exact private chat history between the bot and a specific user.\n\n"
