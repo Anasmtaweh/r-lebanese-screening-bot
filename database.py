@@ -302,7 +302,13 @@ def get_transcript_summary(user_id: int) -> str:
             safe_text = item['text'].replace('\n', '\n> ')
             lines.append(f"👤 **User Reply #{i}:**\n> {safe_text}")
         else:
-            lines.append(f"🤖 **Bot:** *(Sent follow-up prompt)*")
+            bullet_lines = [line.strip() for line in item['text'].split('\n') if line.strip().startswith('•')]
+            if bullet_lines:
+                bullets = '\n'.join(f"  {line}" for line in bullet_lines)
+                lines.append(f"🤖 **Bot:** *(Asked for missing info)*\n{bullets}")
+            else:
+                safe_bot_text = item['text'].replace('\n', '\n> ')
+                lines.append(f"🤖 **Bot:**\n> {safe_bot_text}")
     return "\n\n".join(lines)
 
 
