@@ -264,38 +264,38 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
         transcript_text = database.get_transcript_summary(user.id)
         admin_report = (
-            f"📋 Satisfactory Screening Reply\n"
-            f"From: {user.full_name} (@{user.username} | ID: {user.id})\n"
-            f"Chat ID: {chat_id}"
-            f"{history_block}\n\n"
-            f"{transcript_text}\n\n"
-            f"💡 Admins: Use `/reply {user.id} <msg>` to DM the user, or approve/decline manually in Telegram."
+            f"📋 *Satisfactory Screening Reply*\n"
+            f"👤 **User:** {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
+            f"💬 *Transcript:*\n\n{transcript_text}\n\n"
+            f"💡 *Action:* Use `/reply {user.id} <msg>` or approve/decline manually in Telegram."
         )
         await send_admin_notification(context, admin_report)
 
     elif res_type == RESULT_INCOMPLETE:
-        database.update_session_status(user.id, STATUS_PARTIAL, answers_text=user_text)
-        try:
-            follow_up_msg = await update.message.reply_text(feedback)
-            database.add_bot_message_id(user.id, follow_up_msg.message_id)
-            database.add_to_transcript(user.id, "bot", feedback)
-        except TelegramError as e:
-            logger.error("Could not send follow-up prompt to %s: %s", user.id, e)
-
         if attempt_count == 1:
-            # Silently prompt user without alerting admins on 1st incomplete try
+            database.update_session_status(user.id, STATUS_PARTIAL, answers_text=user_text)
+            try:
+                follow_up_msg = await update.message.reply_text(feedback)
+                database.add_bot_message_id(user.id, follow_up_msg.message_id)
+                database.add_to_transcript(user.id, "bot", feedback)
+            except TelegramError as e:
+                logger.error("Could not send follow-up prompt to %s: %s", user.id, e)
             logger.info("Attempt 1 incomplete for user %s. Sent silent follow-up prompt.", user.id)
         else:
-            # On 2nd or later incomplete attempt, push full transcript to admins
+            # On 2nd or later incomplete attempt, lock the session and push transcript to admins
+            database.update_session_status(user.id, STATUS_PASSED_TO_ADMINS, answers_text=user_text)
+            database.add_to_transcript(user.id, "bot", "*(Interview concluded due to incomplete answers)*")
+            await update.message.reply_text(
+                "Thank you! Your answers have been received and submitted to R/lebanese admins for review."
+            )
+            
             transcript_text = database.get_transcript_summary(user.id)
             await send_admin_notification(
                 context,
-                f"📋 Screening Report (2nd Attempt - Needs Admin Attention)\n"
-                f"User: {user.full_name} (@{user.username} | ID: {user.id})\n"
-                f"Chat ID: {chat_id}"
-                f"{history_block}\n\n"
-                f"{transcript_text}\n\n"
-                f"💡 Admins: Use `/reply {user.id} <msg>` to DM the user, or `/decline {user.id} <reason>` to decline.",
+                f"📋 *Screening Report (Needs Admin Attention)*\n"
+                f"👤 **User:** {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
+                f"💬 *Transcript:*\n\n{transcript_text}\n\n"
+                f"💡 *Action:* Use `/reply {user.id} <msg>` or `/decline {user.id}`.",
             )
 
     elif res_type == RESULT_UNSATISFACTORY:
@@ -306,12 +306,10 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
         await send_admin_notification(
             context,
-            f"⚠️ Flagged Screening Reply (Under 18 / Review Needed)\n"
-            f"User: {user.full_name} (@{user.username} | ID: {user.id})\n"
-            f"Chat ID: {chat_id}"
-            f"{history_block}\n\n"
-            f"{transcript_text}\n\n"
-            f"💡 Admins: Please review manually. Use `/reply {user.id} <msg>` or `/decline {user.id} <reason>`.",
+            f"⚠️ *Flagged Screening Reply (Under 18 / Review Needed)*\n"
+            f"👤 **User:** {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
+            f"💬 *Transcript:*\n\n{transcript_text}\n\n"
+            f"💡 *Action:* Please review manually. Use `/reply {user.id} <msg>` or `/decline {user.id}`.",
         )
 
     elif res_type == RESULT_JUNK:
