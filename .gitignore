@@ -25,3 +25,6 @@ __pycache__/
 *.swp
 *.swo
 .DS_Store
+
+# Private CV Notes
+CV_PROJECT_DETAILS.md
