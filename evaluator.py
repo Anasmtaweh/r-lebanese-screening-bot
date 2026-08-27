@@ -137,7 +137,7 @@ class AnswerEvaluator:
 
     def evaluate_with_llm(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
-        Calls Groq API (free Llama-3.1-8B) or Gemini API as a SILENT BACKEND CLASSIFIER.
+        Calls Groq API (free Llama-3.1-8B) as a SILENT BACKEND CLASSIFIER.
         The LLM never communicates with the user or generates text for the user.
         It only classifies the response as SATISFACTORY, INCOMPLETE, or UNSATISFACTORY.
         """
@@ -150,7 +150,7 @@ class AnswerEvaluator:
             "CRITICAL RULES:\n"
             "1. JUNK vs INCOMPLETE: If the user did NOT genuinely answer ANY of the 4 screening questions (e.g. 'yes yes yes', 'ok hello', 'who you are', or spam), you MUST return JUNK!\n"
             "2. ANTI-LENIENCY: Only return INCOMPLETE if they genuinely answered AT LEAST ONE question (e.g., 'Lebanese, 22') but missed others. If any of the 4 questions is missing, you MUST return INCOMPLETE and NOT SATISFACTORY.\n"
-            "3. DIALECTS: Accept answers in English, Arabic, or Lebanese Franco-Arabic dialect. You MUST understand Arabic words like 'نعم' (Yes) or 'تيليغرام' (Telegram).\n"
+            "3. DIALECTS & SLANG: Accept answers in English, Arabic, or Lebanese Franco-Arabic dialect. Recognize modern AI tools like ChatGPT ('شات جي بتي') or internet search ('من النت') as valid sources for Q3. Recognize that insults or dismissals like 'انت مالك' (None of your business) do NOT answer Q4.\n"
             "4. HEBREW/ZIONIST: If the user writes in Hebrew script, mentions Israel as their country, or identifies as Zionist/Israeli, you MUST return UNSATISFACTORY immediately. This is an anti-Zionist community.\n\n"
             f"User Reply:\n\"\"\"{user_text}\"\"\"\n\n"
             "Reply with exactly ONE line:\n"
@@ -161,37 +161,25 @@ class AnswerEvaluator:
         )
 
         reply_token = ""
-        # Route Groq/Gemini calls through PythonAnywhere proxy to bypass free tier firewall
+        # Route Groq calls through PythonAnywhere proxy to bypass free tier firewall
         proxy_url = "http://proxy.server:3128" if os.environ.get("PYTHONANYWHERE_SITE") else None
         with httpx.Client(proxy=proxy_url, timeout=10.0) as client:
-            if self.api_key.startswith("gsk_"):
-                # Groq API (Llama 3.1 8B Instant - 100% Free)
-                url = "https://api.groq.com/openai/v1/chat/completions"
-                headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                }
-                payload = {
-                    "model": "llama3-8b-8192",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.0,
-                    "max_tokens": 15,
-                }
-                resp = client.post(url, headers=headers, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                reply_token = data["choices"][0]["message"]["content"].strip().upper()
-            else:
-                # Gemini API
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}"
-                payload = {
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.0, "maxOutputTokens": 15},
-                }
-                resp = client.post(url, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                reply_token = data["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
+            # Groq API (Llama 3.1 8B Instant - 100% Free)
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": "llama3-8b-8192",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.0,
+                "max_tokens": 15,
+            }
+            resp = client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            reply_token = data["choices"][0]["message"]["content"].strip().upper()
 
         if "SATISFACTORY" in reply_token and "UNSATISFACTORY" not in reply_token:
             return (RESULT_SATISFACTORY, user_text)

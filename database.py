@@ -309,7 +309,8 @@ def get_transcript_summary(user_id: int) -> str:
                 bullets = '\n'.join(f"  {line}" for line in bullet_lines)
                 lines.append(f"🤖 _Bot asked for:_\n{bullets}")
             else:
-                lines.append(f"🤖 _Bot: (sent follow-up prompt)_")
+                safe_bot_text = item['text'].replace('*', '').replace('_', '').replace('`', '')
+                lines.append(f"🤖 _Bot:_\n「{safe_bot_text}」")
     return "\n\n".join(lines)
 
 

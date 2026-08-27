@@ -271,7 +271,7 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await send_admin_notification(context, admin_report)
 
     elif res_type == RESULT_INCOMPLETE:
-        if attempt_count == 1:
+        if attempt_count < 3:
             database.update_session_status(user.id, STATUS_PARTIAL, answers_text=user_text)
             try:
                 follow_up_msg = await update.message.reply_text(feedback)
@@ -279,9 +279,9 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 database.add_to_transcript(user.id, "bot", feedback)
             except TelegramError as e:
                 logger.error("Could not send follow-up prompt to %s: %s", user.id, e)
-            logger.info("Attempt 1 incomplete for user %s. Sent silent follow-up prompt.", user.id)
+            logger.info("Attempt %s incomplete for user %s. Sent silent follow-up prompt.", attempt_count, user.id)
         else:
-            # On 2nd or later incomplete attempt, lock the session and push transcript to admins
+            # On 3rd or later incomplete attempt, lock the session and push transcript to admins
             database.update_session_status(user.id, STATUS_PASSED_TO_ADMINS, answers_text=user_text)
             database.add_to_transcript(user.id, "bot", "*(Interview concluded due to incomplete answers)*")
             await update.message.reply_text(
