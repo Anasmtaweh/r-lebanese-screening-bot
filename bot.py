@@ -30,6 +30,7 @@ from handlers import (
     on_language_selection,
     undo_callback,
     on_user_dm_reply,
+    cleanup_expired_sessions_job,
 )
 
 # Persistent file logging — survives crashes, always available on PythonAnywhere
@@ -127,10 +128,21 @@ def main() -> None:
         group=2,
     )
 
-    # Start Healthcheck heartbeat job (runs every 300 seconds = 5 minutes)
+    # 5. Register repeating background jobs
     if app.job_queue:
-        app.job_queue.run_repeating(ping_healthcheck, interval=300, first=10)
-        logger.info("Healthchecks.io heartbeat scheduled (5 min intervals)")
+        app.job_queue.run_repeating(
+            ping_healthcheck,
+            interval=300,  # 5 minutes
+            first=10,
+            name="healthcheck_ping",
+        )
+        app.job_queue.run_repeating(
+            cleanup_expired_sessions_job,
+            interval=600,  # 10 minutes
+            first=20,
+            name="cleanup_expired_sessions",
+        )
+        logger.info("Background jobs scheduled (Healthcheck + Session Cleanup)")
 
     logger.info("R/lebanese Screening Bot is ready.")
 
