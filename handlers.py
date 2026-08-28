@@ -158,10 +158,11 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         logger.info("Scheduled timeout job %s in %s seconds", job_name, SCREENING_TIMEOUT_SECONDS)
 
+    username_str = f"(@{user.username}) " if user.username else ""
     # 5. Notify Admins with clean, short notification
     await send_admin_notification(
         context,
-        f"✉️ Screening DM sent successfully to User: {user.full_name} (@{user.username} | ID: {user.id})."
+        f"✉️ Screening DM sent successfully to User: {user.full_name} {username_str}| ID: `{user.id}`\n"
         f"{history_block}\n"
         f"48-hour rolling timer started.",
     )
@@ -262,9 +263,10 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
 
         transcript_text = database.get_transcript_summary(user.id)
+        username_str = f"(@{user.username}) " if user.username else ""
         admin_report = (
             f"📋 *Satisfactory Screening Reply*\n"
-            f"👤 {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
+            f"👤 {user.full_name} {username_str}| ID: `{user.id}`\n"
             f"{transcript_text}\n\n"
             f"💡 Use `/reply {user.id} <msg>` or approve/decline in Telegram."
         )
@@ -289,10 +291,11 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             )
             
             transcript_text = database.get_transcript_summary(user.id)
+            username_str = f"(@{user.username}) " if user.username else ""
             await send_admin_notification(
                 context,
                 f"📋 *Screening Report (Needs Admin Attention)*\n"
-                f"👤 {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
+                f"👤 {user.full_name} {username_str}| ID: `{user.id}`\n"
                 f"{transcript_text}\n\n"
                 f"💡 Use `/reply {user.id} <msg>` or `/decline {user.id}`.",
             )
@@ -302,11 +305,11 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         database.update_session_status(user.id, STATUS_PASSED_TO_ADMINS, answers_text=user_text)
         database.add_to_transcript(user.id, "bot", "⚠️ Flagged by screening check")
         transcript_text = database.get_transcript_summary(user.id)
-
+        username_str = f"(@{user.username}) " if user.username else ""
         await send_admin_notification(
             context,
             f"⚠️ *Flagged Screening Reply (Review Needed)*\n"
-            f"👤 {user.full_name} (@{user.username} | ID: `{user.id}`)\n"
+            f"👤 {user.full_name} {username_str}| ID: `{user.id}`\n"
             f"{transcript_text}\n\n"
             f"💡 Please review. Use `/reply {user.id} <msg>` or `/decline {user.id}`.",
         )
@@ -324,10 +327,11 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             logger.error("Error declining join request for user %s: %s", user.id, e)
 
         # Notify Admins with the user's junk reply
+        username_str = f"(@{user.username}) " if user.username else ""
         await send_admin_notification(
             context,
             f"🗑️ *Automatically Declined: Junk Reply*\n"
-            f"👤 {user.full_name} (@{user.username} | ID: `{user.id}`)\n\n"
+            f"👤 {user.full_name} {username_str}| ID: `{user.id}`\n\n"
             f"💬 Their Reply: \"{user_text}\"",
         )
 
