@@ -33,6 +33,13 @@ logger = logging.getLogger(__name__)
 evaluator = AnswerEvaluator()
 
 
+def _safe_md(text: str) -> str:
+    """Escapes Markdown formatting characters from user inputs to prevent parse errors."""
+    if not text:
+        return ""
+    return str(text).replace('_', r'\_').replace('*', r'\*').replace('`', r'\`').replace('[', r'\[')
+
+
 def _is_admin(update: Update) -> bool:
     """Returns True only if the message sender's Telegram user ID is in the ADMIN_USER_IDS whitelist."""
     user = update.effective_user
@@ -48,8 +55,8 @@ def _format_user_string(target_user_id: int) -> str:
         return str(target_user_id)
     try:
         meta = json.loads(session.get("user_metadata_json") or "{}")
-        name = meta.get("full_name") or "Unknown"
-        username = f" (@{meta.get('username')})" if meta.get("username") else ""
+        name = _safe_md(meta.get("full_name") or "Unknown")
+        username = f" (@{_safe_md(meta.get('username'))})" if meta.get("username") else ""
         return f"{name}{username} (ID: {target_user_id})"
     except Exception:
         return str(target_user_id)
@@ -144,11 +151,13 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Remove old in-memory timeout job logic (handled by cron job now)
     
-    username_str = f"(@{user.username}) " if user.username else ""
+    safe_username = _safe_md(user.username)
+    safe_name = _safe_md(user.full_name)
+    username_str = f"(@{safe_username}) " if safe_username else ""
     # 5. Notify Admins with clean, short notification
     await send_admin_notification(
         context,
-        f"✉️ Screening DM sent successfully to User: {user.full_name} {username_str}| ID: `{user.id}`\n"
+        f"✉️ Screening DM sent successfully to User: {safe_name} {username_str}| ID: `{user.id}`\n"
         f"{history_block}\n"
         f"48-hour rolling timer started.",
     )
@@ -238,10 +247,12 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
 
         transcript_text = database.get_transcript_summary(user.id)
-        username_str = f"(@{user.username}) " if user.username else ""
+        safe_username = _safe_md(user.username)
+        safe_name = _safe_md(user.full_name)
+        username_str = f"(@{safe_username}) " if safe_username else ""
         admin_report = (
             f"📋 *Satisfactory Screening Reply*\n"
-            f"👤 {user.full_name} {username_str}| ID: `{user.id}`\n"
+            f"👤 {safe_name} {username_str}| ID: `{user.id}`\n"
             f"{transcript_text}\n\n"
             f"💡 Use `/reply {user.id} <msg>` or approve/decline in Telegram."
         )
@@ -266,11 +277,13 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             )
             
             transcript_text = database.get_transcript_summary(user.id)
-            username_str = f"(@{user.username}) " if user.username else ""
+            safe_username = _safe_md(user.username)
+            safe_name = _safe_md(user.full_name)
+            username_str = f"(@{safe_username}) " if safe_username else ""
             await send_admin_notification(
                 context,
                 f"📋 *Screening Report (Needs Admin Attention)*\n"
-                f"👤 {user.full_name} {username_str}| ID: `{user.id}`\n"
+                f"👤 {safe_name} {username_str}| ID: `{user.id}`\n"
                 f"{transcript_text}\n\n"
                 f"💡 Use `/reply {user.id} <msg>` or `/decline {user.id}`.",
             )
@@ -280,11 +293,13 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         database.update_session_status(user.id, STATUS_PASSED_TO_ADMINS, answers_text=user_text)
         database.add_to_transcript(user.id, "bot", "⚠️ Flagged by screening check")
         transcript_text = database.get_transcript_summary(user.id)
-        username_str = f"(@{user.username}) " if user.username else ""
+        safe_username = _safe_md(user.username)
+        safe_name = _safe_md(user.full_name)
+        username_str = f"(@{safe_username}) " if safe_username else ""
         await send_admin_notification(
             context,
             f"⚠️ *Flagged Screening Reply (Review Needed)*\n"
-            f"👤 {user.full_name} {username_str}| ID: `{user.id}`\n"
+            f"👤 {safe_name} {username_str}| ID: `{user.id}`\n"
             f"{transcript_text}\n\n"
             f"💡 Please review. Use `/reply {user.id} <msg>` or `/decline {user.id}`.",
         )
@@ -302,11 +317,13 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             logger.error("Error declining join request for user %s: %s", user.id, e)
 
         # Notify Admins with the user's junk reply
-        username_str = f"(@{user.username}) " if user.username else ""
+        safe_username = _safe_md(user.username)
+        safe_name = _safe_md(user.full_name)
+        username_str = f"(@{safe_username}) " if safe_username else ""
         await send_admin_notification(
             context,
             f"🗑️ *Automatically Declined: Junk Reply*\n"
-            f"👤 {user.full_name} {username_str}| ID: `{user.id}`\n\n"
+            f"👤 {safe_name} {username_str}| ID: `{user.id}`\n\n"
             f"💬 Their Reply: \"{user_text}\"",
         )
 
@@ -406,7 +423,7 @@ async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> No
             meta = json.loads(session.get("user_metadata_json") or "{}")
         except:
             pass
-        user_name = meta.get("full_name") or str(user_id)
+        user_name = _safe_md(meta.get("full_name")) or str(user_id)
         
         logger.info("Timeout fired for user %s (%s). Auto-dismissing.", user_id, user_name)
         database.update_session_status(user_id, STATUS_DISMISSED)
