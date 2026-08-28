@@ -142,22 +142,8 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    # 4. Schedule timeout job in JobQueue
-    if context.job_queue:
-        job_name = f"timeout_{user.id}_{chat.id}"
-        # Remove any existing timeout jobs for this user
-        current_jobs = context.job_queue.get_jobs_by_name(job_name)
-        for job in current_jobs:
-            job.schedule_removal()
-
-        context.job_queue.run_once(
-            on_timeout_job,
-            when=SCREENING_TIMEOUT_SECONDS,
-            data={"user_id": user.id, "chat_id": chat.id, "name": user.full_name},
-            name=job_name,
-        )
-        logger.info("Scheduled timeout job %s in %s seconds", job_name, SCREENING_TIMEOUT_SECONDS)
-
+    # Remove old in-memory timeout job logic (handled by cron job now)
+    
     username_str = f"(@{user.username}) " if user.username else ""
     # 5. Notify Admins with clean, short notification
     await send_admin_notification(
@@ -229,19 +215,8 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     database.add_to_transcript(user.id, "user", user_text)
     attempt_count = database.increment_attempt_count(user.id)
 
-    # Rolling 48-hour timer reset
-    if context.job_queue:
-        job_name = f"timeout_{user.id}_{chat_id}"
-        current_jobs = context.job_queue.get_jobs_by_name(job_name)
-        for job in current_jobs:
-            job.schedule_removal()
-        context.job_queue.run_once(
-            on_timeout_job,
-            when=SCREENING_TIMEOUT_SECONDS,
-            data={"user_id": user.id, "chat_id": chat_id, "name": user.full_name},
-            name=job_name,
-        )
-        logger.info("Reset rolling 48-hour timeout job %s for user %s", job_name, user.id)
+    # Rolling 48-hour timer is automatically reset because database.increment_attempt_count 
+    # and update_session_status update the 'updated_at' timestamp, which the cron job checks.
 
     # Fetch chosen language
     meta = json.loads(session["user_metadata_json"] or "{}")
@@ -404,25 +379,35 @@ async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
 
-async def on_timeout_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Triggered by JobQueue after SCREENING_TIMEOUT_SECONDS (48 hours by default).
-    If the user has not satisfactorily completed screening, they are dismissed,
-    join request declined, and DM messages deleted.
+    Triggered by JobQueue on a repeating interval (e.g. 10 minutes).
+    Fetches all pending/partial sessions from the database where updated_at is older
+    than SCREENING_TIMEOUT_SECONDS. Dismisses them.
     """
-    job = context.job
-    if not job or not job.data:
+    try:
+        expired_sessions = database.get_expired_sessions(SCREENING_TIMEOUT_SECONDS)
+    except Exception as e:
+        logger.error("Error fetching expired sessions: %s", e)
         return
 
-    user_id = job.data["user_id"]
-    chat_id = job.data["chat_id"]
-    user_name = job.data.get("name", "Unknown")
-
-    session = database.get_active_session(user_id)
-    if not session:
+    if not expired_sessions:
         return
 
-    if session["status"] in (STATUS_PENDING, STATUS_PARTIAL):
+    logger.info("Cron found %s expired sessions. Processing...", len(expired_sessions))
+
+    for session in expired_sessions:
+        user_id = session["user_id"]
+        chat_id = session["chat_id"]
+        
+        # Get username safely
+        meta = {}
+        try:
+            meta = json.loads(session.get("user_metadata_json") or "{}")
+        except:
+            pass
+        user_name = meta.get("full_name") or str(user_id)
+        
         logger.info("Timeout fired for user %s (%s). Auto-dismissing.", user_id, user_name)
         database.update_session_status(user_id, STATUS_DISMISSED)
         database.add_user_history(user_id, chat_id, "DISMISSED_TIMEOUT", "Did not reply within 48 hours")
@@ -439,7 +424,7 @@ async def on_timeout_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
         await send_admin_notification(
             context,
-            f"⏳ 48-Hour Timeout: User {user_name} (ID: {user_id}) did not reply in time.\n"
+            f"⏳ *48-Hour Timeout*: User {user_name} (ID: `{user_id}`) did not reply in time.\n"
             f"Their join request was automatically DECLINED and screening DM messages deleted.",
         )
 

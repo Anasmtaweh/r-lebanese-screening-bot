@@ -248,6 +248,21 @@ def get_bot_message_ids(user_id: int) -> List[int]:
     return json.loads(session["bot_message_ids"] or "[]")
 
 
+def get_expired_sessions(timeout_seconds: int) -> List[Dict[str, Any]]:
+    """Returns all PENDING or PARTIAL sessions where updated_at is older than timeout_seconds."""
+    with _get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM screening_sessions
+                WHERE status IN (%s, %s)
+                  AND updated_at < CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
+                """,
+                (STATUS_PENDING, STATUS_PARTIAL, timeout_seconds),
+            )
+            return cur.fetchall()
+
+
 def increment_attempt_count(user_id: int) -> int:
     """Increments the attempt counter for this user's screening session and returns the new count."""
     session = get_session(user_id)
