@@ -4,7 +4,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from typing import Any, Dict, List, Optional
 from contextlib import contextmanager
-from config import STATUS_PENDING, STATUS_DISMISSED
+from config import STATUS_PENDING, STATUS_DISMISSED, STATUS_PARTIAL
 
 def get_db_url() -> str:
     from dotenv import load_dotenv
