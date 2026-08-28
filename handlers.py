@@ -142,10 +142,25 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.info("Sent language selection DM to user %s (message_id=%s)", user.id, sent_msg.message_id)
     except TelegramError as e:
         logger.error("Could not send screening DM to user %s: %s", user.id, e)
+        safe_username = _safe_md(user.username)
+        safe_name = _safe_md(user.full_name)
+        username_str = f"(@{safe_username}) " if safe_username else ""
+        
+        # Silently decline them immediately if they block bots or require payment
+        try:
+            await context.bot.decline_chat_join_request(chat_id=chat.id, user_id=user.id)
+        except TelegramError:
+            pass
+            
+        database.update_session_status(user.id, STATUS_DISMISSED)
+        database.add_user_history(user.id, chat.id, "DECLINED_NO_DM", f"Auto-declined: Could not DM ({e})")
+        
         await send_admin_notification(
             context,
-            f"⚠️ Could not send screening DM to user {user.full_name} (ID: {user.id}): {e}\n"
-            f"They might have blocked bots or privacy settings prevent DMs.",
+            f"🚫 *Auto-Declined: Cannot Send DM*\n"
+            f"👤 User {safe_name} {username_str}| ID: `{user.id}`\n"
+            f"Reason: `Telegram Error - {e}`\n"
+            f"*(They likely blocked the bot or require paid Telegram Stars for PMs)*"
         )
         return
 
