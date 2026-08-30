@@ -1,24 +1,54 @@
 import json
 import os
 import psycopg2
+from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from typing import Any, Dict, List, Optional
 from contextlib import contextmanager
 from config import STATUS_PENDING, STATUS_DISMISSED, STATUS_PARTIAL
+
+_db_pool = None
 
 def get_db_url() -> str:
     from dotenv import load_dotenv
     load_dotenv()
     return os.environ.get("DATABASE_URL", "")
 
+def _init_pool():
+    global _db_pool
+    if _db_pool is None:
+        url = get_db_url()
+        if url:
+            _db_pool = psycopg2.pool.ThreadedConnectionPool(1, 20, url, cursor_factory=RealDictCursor)
+
 @contextmanager
 def _get_connection():
-    # We create a new connection per request. For high traffic, a connection pool is better.
-    conn = psycopg2.connect(get_db_url(), cursor_factory=RealDictCursor)
-    try:
-        yield conn
-    finally:
-        conn.close()
+    global _db_pool
+    if _db_pool is None:
+        _init_pool()
+    
+    if _db_pool:
+        conn = _db_pool.getconn()
+        try:
+            # Ping to check if connection is alive (handles idle drop by Supabase)
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+            # Connection is dead, throw it away and create a fresh one
+            _db_pool.putconn(conn, close=True)
+            conn = psycopg2.connect(get_db_url(), cursor_factory=RealDictCursor)
+
+        try:
+            yield conn
+        finally:
+            _db_pool.putconn(conn)
+    else:
+        # Fallback if DATABASE_URL is missing
+        conn = psycopg2.connect(get_db_url(), cursor_factory=RealDictCursor)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
 def init_db() -> None:
     """Initializes the PostgreSQL database tables for screening sessions."""

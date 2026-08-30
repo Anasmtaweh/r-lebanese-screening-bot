@@ -104,14 +104,8 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # 1.5. Debounce check: prevent duplicate DMs if Telegram retries a webhook during cold start
     existing_session = database.get_session(user.id)
     if existing_session and existing_session.get("status") == "PENDING":
-        updated_at = existing_session.get("updated_at")
-        if updated_at:
-            # psycopg2 datetime is naive if timezone not set, treat as UTC since CURRENT_TIMESTAMP is UTC in PG
-            if updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) - updated_at < timedelta(minutes=2):
-                logger.info(f"Debouncing duplicate join request for user {user.id}")
-                return
+        logger.info(f"Ignoring duplicate join request because user {user.id} is already PENDING.")
+        return
 
     # 2. Initialize SQLite session with user metadata for future AI training
     user_metadata = {
