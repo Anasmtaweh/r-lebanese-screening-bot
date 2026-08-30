@@ -1,6 +1,7 @@
 import logging
 import re
 import json
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from telegram import Chat, ChatMember, ChatMemberUpdated, Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -31,6 +32,9 @@ from evaluator import (
 
 logger = logging.getLogger(__name__)
 evaluator = AnswerEvaluator()
+
+# In-memory cache to prevent race conditions when Telegram double-fires webhooks instantaneously
+_recent_join_requests = {}
 
 
 def _safe_md(text: str) -> str:
@@ -102,6 +106,16 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     history_block = f"\n\n{history_summary}" if history_summary else "\n\n✨ First-time applicant."
 
     # 1.5. Debounce check: prevent duplicate DMs if Telegram retries a webhook during cold start
+    # Using an in-memory dictionary prevents race conditions that the database check might miss
+    # if two webhooks hit the server at the exact same millisecond.
+    current_time = time.time()
+    last_request_time = _recent_join_requests.get(user.id, 0)
+    if current_time - last_request_time < 120:  # 2 minutes
+        logger.info(f"Memory debounce: ignoring duplicate join request for user {user.id}")
+        return
+    _recent_join_requests[user.id] = current_time
+
+    # Also check database just in case the server restarted between their requests
     existing_session = database.get_session(user.id)
     if existing_session and existing_session.get("status") == "PENDING":
         updated_at = existing_session.get("updated_at")
@@ -110,7 +124,7 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if updated_at.tzinfo is None:
                 updated_at = updated_at.replace(tzinfo=timezone.utc)
             if datetime.now(timezone.utc) - updated_at < timedelta(minutes=2):
-                logger.info(f"Debouncing duplicate join request for user {user.id}")
+                logger.info(f"Database debounce: ignoring duplicate join request for user {user.id}")
                 return
 
     # 2. Initialize SQLite session with user metadata for future AI training
@@ -384,8 +398,8 @@ async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     replied_text = update.message.reply_to_message.text or ""
-    # Extract user ID from text like "ID: 123456789"
-    match = re.search(r"ID:\s*(\d+)", replied_text)
+    # Extract user ID from text like "ID: 123456789" or "ID: `123456789`"
+    match = re.search(r"ID:\s*`?(\d+)`?", replied_text)
     if not match:
         return
 
