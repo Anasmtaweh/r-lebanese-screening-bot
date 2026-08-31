@@ -37,7 +37,7 @@ def _safe_md(text: str) -> str:
     """Escapes Markdown formatting characters from user inputs to prevent parse errors."""
     if not text:
         return ""
-    return str(text).replace('_', r'\_').replace('*', r'\*').replace('`', r'\`').replace('[', r'\[')
+    return str(text).replace('_', r'\_').replace('*', r'\*').replace('`', r'\`')
 
 
 def _is_admin(update: Update) -> bool:
@@ -103,9 +103,18 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # 1.5. Debounce check: prevent duplicate DMs if Telegram retries a webhook during cold start
     existing_session = database.get_session(user.id)
-    if existing_session and existing_session.get("status") == "PENDING":
-        logger.info(f"Ignoring duplicate join request because user {user.id} is already PENDING.")
-        return
+    if existing_session and existing_session.get("status") in [STATUS_PENDING, STATUS_PARTIAL]:
+        updated_at = existing_session.get("updated_at")
+        if updated_at:
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            # If request is within 5 minutes, it's a webhook duplicate, ignore it
+            if datetime.now(timezone.utc) - updated_at < timedelta(minutes=5):
+                logger.info(f"Ignoring duplicate join request because user {user.id} recently started.")
+                return
+        
+        # If > 5 minutes, it's a deliberate re-join. Record history and restart them.
+        database.add_user_history(user.id, chat.id, "RESTARTED_SCREENING", "User cancelled and re-sent join request.")
 
     # 2. Initialize SQLite session with user metadata for future AI training
     user_metadata = {
