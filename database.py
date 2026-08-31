@@ -125,6 +125,10 @@ def get_user_history(
             return [dict(r) for r in cur.fetchall()]
 
 
+def _safe_md_db(text: str) -> str:
+    if not text: return ""
+    return str(text).replace('_', r'\_').replace('*', r'\*').replace('`', r'\`')
+
 def format_user_history_summary(
     user_id: int, chat_id: int
 ) -> str:
@@ -136,8 +140,8 @@ def format_user_history_summary(
     lines = ["📜 Previous History for this User:"]
     for item in history[:5]:  # show up to 5 most recent events
         date_str = str(item["created_at"])[:16]  # YYYY-MM-DD HH:MM
-        event = item["event_type"]
-        details = f" ({item['details']})" if item["details"] else ""
+        event = _safe_md_db(item["event_type"])
+        details = f" ({_safe_md_db(item['details'])})" if item["details"] else ""
         lines.append(f"  • [{date_str}] {event}{details}")
 
     return "\n".join(lines)
