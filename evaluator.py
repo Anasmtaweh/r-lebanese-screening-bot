@@ -112,7 +112,7 @@ class AnswerEvaluator:
         # 4. Question-by-Question Coverage Heuristic:
         has_nationality = any(kw in text_lower for kw in ["yes", "lebanese", "lebanon", "beirut", "lb", "am lebanese", "نعم", "اي", "يب", "أجل", "لبناني", "لبنانية", "لبنان", "بيروت", "no", "not lebanese", "from", "country", "syrian", "iraqi", "egyptian", "jordanian", "palestinian", "iranian", "سوري", "عراقي", "مصري", "أردني", "فلسطيني", "إيراني", "إيرانية", "سورية", "مصرية", "بلد", "جنسية", "من"])
         has_age = any(kw in text_lower for kw in ["18", "19", "20", "21", "22", "23", "24", "25", "30", "years", "old", "over 18", "عشرين", "سنة", "عمري", "عام", "عمر"])
-        has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub", "ريدت", "قوقل", "جوجل", "صديق", "صاحبي", "بحث", "صدفة", "تيك توك", "تليجرام", "تيليغرام", "رابط"])
+        has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub", "ريدت", "قوقل", "جوجل", "صديق", "صاحبي", "بحث", "صدفة", "تيك توك", "تليجرام", "تيليغرام", "رابط", "chatgpt", "chat gpt", "شات", "شات جي بي تي", "ai", "ذكاء", "اصطناعي"])
         has_reason = any(kw in text_lower for kw in ["community", "people", "talk", "chat", "discuss", "news", "join", "friends", "connect", "know", "live", "اتحدث", "شات", "تعارف", "دردشة", "انضمام", "انضم", "استمتع", "سبب", "تفاعل", "فضول", "شوف", "اشوف", "حابب"])
 
         missing = []
@@ -161,17 +161,19 @@ class AnswerEvaluator:
         )
 
         reply_token = ""
-        # Route Groq calls through PythonAnywhere proxy to bypass free tier firewall
+        # Route API calls through PythonAnywhere proxy if applicable
         proxy_url = "http://proxy.server:3128" if os.environ.get("PYTHONANYWHERE_SITE") else None
-        with httpx.Client(proxy=proxy_url, timeout=10.0) as client:
-            # Groq API (Llama 3.1 8B Instant - 100% Free)
-            url = "https://api.groq.com/openai/v1/chat/completions"
+        with httpx.Client(proxy=proxy_url, timeout=15.0) as client:
+            # OpenRouter API (Llama 3.1 8B Instruct - 100% Free)
+            url = "https://openrouter.ai/api/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/Anasmtaweh/r-lebanese-screening-bot",
+                "X-Title": "Lebanese Screening Bot"
             }
             payload = {
-                "model": "llama-3.1-8b-instant",
+                "model": "meta-llama/llama-3.1-8b-instruct:free",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.0,
                 "max_tokens": 15,
