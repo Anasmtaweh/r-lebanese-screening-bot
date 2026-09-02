@@ -20,6 +20,7 @@ from config import (
     STATUS_PARTIAL,
     STATUS_PASSED_TO_ADMINS,
     STATUS_PENDING,
+    STATUS_AWAITING_USER_REPLY,
 )
 from evaluator import (
     AnswerEvaluator,
@@ -231,7 +232,14 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     # Fix: Stop processing messages after user already passed screening
-    if session["status"] in (STATUS_PASSED_TO_ADMINS, STATUS_APPROVED):
+    if session["status"] == STATUS_APPROVED:
+        await update.message.reply_text(
+            "Your answers have already been submitted and are under review by R/lebanese admins. "
+            "Please wait for an admin to get back to you!"
+        )
+        return
+        
+    if session["status"] == STATUS_PASSED_TO_ADMINS:
         await update.message.reply_text(
             "Your answers have already been submitted and are under review by R/lebanese admins. "
             "Please wait for an admin to get back to you!"
@@ -241,6 +249,17 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     chat_id = session["chat_id"]
     database.add_to_transcript(user.id, "user", user_text)
     attempt_count = database.increment_attempt_count(user.id)
+
+    # If the user is replying to a custom admin question:
+    if session["status"] == STATUS_AWAITING_USER_REPLY:
+        # Pause the timer by putting them back in the admin's court
+        database.update_session_status(user.id, STATUS_PASSED_TO_ADMINS)
+        await context.bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text=f"💬 User Reply from {user.name} (ID: `{user.id}`):\n\n「{user_text}」\n\n💡 Use /reply {user.id} <msg> to reply back.",
+            parse_mode="Markdown"
+        )
+        return
 
     # Rolling 48-hour timer is automatically reset because database.increment_attempt_count 
     # and update_session_status update the 'updated_at' timestamp, which the cron job checks.
@@ -407,12 +426,13 @@ async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=reply_markup
         )
         logger.info("Admin relayed message to user %s", target_user_id)
+        # Start 48-hour timer for user to reply
+        database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
     except TelegramError as e:
         logger.error("Could not relay message to user %s: %s", target_user_id, e)
         await update.message.reply_text(
             f"❌ Failed to send message to user ID {target_user_id}: {e}"
         )
-
 
 async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -505,6 +525,8 @@ async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=reply_markup
         )
         logger.info("Admin command /reply sent to %s", target_user_id)
+        # Start 48-hour timer for user to reply
+        database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
     except TelegramError as e:
         await update.message.reply_text(f"❌ Could not send DM to {target_user_id}: {e}")
 

@@ -5,7 +5,7 @@ from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from typing import Any, Dict, List, Optional
 from contextlib import contextmanager
-from config import STATUS_PENDING, STATUS_DISMISSED, STATUS_PARTIAL
+from config import STATUS_PENDING, STATUS_DISMISSED, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY
 
 _db_pool = None
 
@@ -283,16 +283,16 @@ def get_bot_message_ids(user_id: int) -> List[int]:
 
 
 def get_expired_sessions(timeout_seconds: int) -> List[Dict[str, Any]]:
-    """Returns all PENDING or PARTIAL sessions where updated_at is older than timeout_seconds."""
+    """Returns all PENDING, PARTIAL, or AWAITING_USER_REPLY sessions where updated_at is older than timeout_seconds."""
     with _get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT * FROM screening_sessions
-                WHERE status IN (%s, %s)
+                WHERE status IN (%s, %s, %s)
                   AND updated_at < CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
                 """,
-                (STATUS_PENDING, STATUS_PARTIAL, timeout_seconds),
+                (STATUS_PENDING, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY, timeout_seconds),
             )
             return cur.fetchall()
 
