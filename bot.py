@@ -30,6 +30,7 @@ from handlers import (
     on_language_selection,
     undo_callback,
     on_user_dm_reply,
+    on_group_message,
     cleanup_expired_sessions_job,
 )
 
@@ -126,6 +127,15 @@ def main() -> None:
             on_user_dm_reply,
         ),
         group=2,
+    )
+
+    # Group Message Handler (Only checks sender ID for probation users — does NOT read message content)
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS,
+            on_group_message,
+        ),
+        group=3,
     )
 
     # 5. Register repeating background jobs

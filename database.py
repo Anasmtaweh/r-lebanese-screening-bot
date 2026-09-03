@@ -5,7 +5,7 @@ from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from typing import Any, Dict, List, Optional
 from contextlib import contextmanager
-from config import STATUS_PENDING, STATUS_DISMISSED, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY
+from config import STATUS_PENDING, STATUS_DISMISSED, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY, STATUS_PROBATION
 
 _db_pool = None
 
@@ -295,6 +295,32 @@ def get_expired_sessions(timeout_seconds: int) -> List[Dict[str, Any]]:
                 (STATUS_PENDING, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY, timeout_seconds),
             )
             return cur.fetchall()
+
+
+def get_expired_probation_sessions(timeout_seconds: int) -> List[Dict[str, Any]]:
+    """Returns all PROBATION sessions where updated_at is older than timeout_seconds (24h)."""
+    with _get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM screening_sessions
+                WHERE status = %s
+                  AND updated_at < CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
+                """,
+                (STATUS_PROBATION, timeout_seconds),
+            )
+            return cur.fetchall()
+
+
+def get_probation_user_ids() -> List[int]:
+    """Returns a list of user IDs that are currently on PROBATION."""
+    with _get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id FROM screening_sessions WHERE status = %s",
+                (STATUS_PROBATION,),
+            )
+            return [row["user_id"] for row in cur.fetchall()]
 
 
 def increment_attempt_count(user_id: int) -> int:
