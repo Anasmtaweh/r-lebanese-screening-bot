@@ -14,6 +14,7 @@ from config import (
     SCREENING_QUESTIONS_EN,
     SCREENING_QUESTIONS_AR,
     SCREENING_TIMEOUT_SECONDS,
+    PROBATION_TIMEOUT_SECONDS,
     STATUS_APPROVED,
     STATUS_DECLINED,
     STATUS_DISMISSED,
@@ -21,6 +22,7 @@ from config import (
     STATUS_PASSED_TO_ADMINS,
     STATUS_PENDING,
     STATUS_AWAITING_USER_REPLY,
+    STATUS_PROBATION,
 )
 from evaluator import (
     AnswerEvaluator,
@@ -47,6 +49,12 @@ def _is_admin(update: Update) -> bool:
     if not user:
         return False
     return user.id in ADMIN_USER_IDS
+
+
+def _is_probation_trigger(text: str) -> bool:
+    """Returns True if the admin message contains the probation warning keywords."""
+    t = text.lower()
+    return ("24 hours" in t or "24 ساعة" in t)
 
 
 def _format_user_string(target_user_id: int) -> str:
@@ -383,7 +391,10 @@ async def on_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_T
     # User joined / was approved
     if old_status in (ChatMember.LEFT, ChatMember.BANNED) and new_status in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER):
         database.add_user_history(user.id, chat.id, "APPROVED_JOINED", "User joined the group")
-        database.update_session_status(user.id, STATUS_APPROVED)
+        # Don't override PROBATION status — admin may set it later
+        session = database.get_session(user.id)
+        if not session or session["status"] != STATUS_PROBATION:
+            database.update_session_status(user.id, STATUS_APPROVED)
         await _delete_bot_messages(context, user.id)
         logger.info("Recorded history: User %s joined group %s and session approved", user.id, chat.id)
 
@@ -426,8 +437,17 @@ async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=reply_markup
         )
         logger.info("Admin relayed message to user %s", target_user_id)
-        # Start 48-hour timer for user to reply
-        database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
+        # Check if this is a probation warning (contains "24 hours" or "24 ساعة")
+        if _is_probation_trigger(admin_text):
+            database.update_session_status(target_user_id, STATUS_PROBATION)
+            await update.message.reply_text(
+                f"⏱ 24-hour probation timer started for user {target_user_id}. "
+                f"They will be kicked if they don't message in the group."
+            )
+            logger.info("Probation timer started for user %s", target_user_id)
+        else:
+            # Start 48-hour timer for user to reply
+            database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
     except TelegramError as e:
         logger.error("Could not relay message to user %s: %s", target_user_id, e)
         await update.message.reply_text(
@@ -483,6 +503,75 @@ async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> No
             f"Their join request was automatically DECLINED and screening DM messages deleted.",
         )
 
+    # --- Probation timeout: 24 hours ---
+    try:
+        expired_probation = database.get_expired_probation_sessions(PROBATION_TIMEOUT_SECONDS)
+    except Exception as e:
+        logger.error("Error fetching expired probation sessions: %s", e)
+        expired_probation = []
+
+    if expired_probation:
+        logger.info("Cron found %s expired probation sessions. Processing...", len(expired_probation))
+
+    for session in expired_probation:
+        user_id = session["user_id"]
+        chat_id = session["chat_id"]
+
+        meta = {}
+        try:
+            meta = json.loads(session.get("user_metadata_json") or "{}")
+        except:
+            pass
+        user_name = _safe_md(meta.get("full_name")) or str(user_id)
+
+        logger.info("Probation timeout for user %s (%s). Kicking.", user_id, user_name)
+        database.update_session_status(user_id, STATUS_DISMISSED)
+        database.add_user_history(user_id, chat_id, "KICKED_PROBATION", "Did not message in group within 24 hours")
+
+        # Kick from group (ban + unban = kick without permanent ban)
+        try:
+            await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
+            await context.bot.unban_chat_member(chat_id=chat_id, user_id=user_id)
+            logger.info("Kicked user %s from group %s (probation expired)", user_id, chat_id)
+        except TelegramError as e:
+            logger.error("Error kicking user %s from group: %s", user_id, e)
+
+        await send_admin_notification(
+            context,
+            f"🚫 *24h Probation Expired*: User {user_name} (ID: `{user_id}`) did not message in the group.\n"
+            f"They have been automatically kicked.",
+        )
+
+
+async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Lightweight handler for group messages. Only checks the sender's user ID
+    against probation users. Does NOT read, log, or store any message content.
+    """
+    if not update.effective_user:
+        return
+
+    user = update.effective_user
+
+    # Quick check: is this user on probation?
+    session = database.get_session(user.id)
+    if not session or session["status"] != STATUS_PROBATION:
+        return
+
+    # User sent a message in the group while on probation — they're safe!
+    chat_id = session["chat_id"]
+    database.update_session_status(user.id, STATUS_APPROVED)
+    database.add_user_history(user.id, chat_id, "PROBATION_CLEARED", "User messaged in group within 24 hours")
+    logger.info("Probation cleared for user %s", user.id)
+
+    safe_name = _safe_md(user.full_name)
+    safe_username = f"(@{_safe_md(user.username)})" if user.username else ""
+    await send_admin_notification(
+        context,
+        f"✅ *Probation Cleared*: {safe_name} {safe_username} (ID: `{user.id}`) sent a message in the group.\n"
+        f"Their 24-hour probation has been lifted.",
+    )
+
 
 async def _delete_bot_messages(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     """Helper to delete all recorded bot messages sent to user_id."""
@@ -525,8 +614,17 @@ async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=reply_markup
         )
         logger.info("Admin command /reply sent to %s", target_user_id)
-        # Start 48-hour timer for user to reply
-        database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
+        # Check if this is a probation warning (contains "24 hours" or "24 ساعة")
+        if _is_probation_trigger(msg_text):
+            database.update_session_status(target_user_id, STATUS_PROBATION)
+            await update.message.reply_text(
+                f"⏱ 24-hour probation timer started for user {target_user_id}. "
+                f"They will be kicked if they don't message in the group."
+            )
+            logger.info("Probation timer started for user %s", target_user_id)
+        else:
+            # Start 48-hour timer for user to reply
+            database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
     except TelegramError as e:
         await update.message.reply_text(f"❌ Could not send DM to {target_user_id}: {e}")
 
