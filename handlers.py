@@ -35,6 +35,15 @@ from evaluator import (
 logger = logging.getLogger(__name__)
 evaluator = AnswerEvaluator()
 
+# In-memory cache of probation user IDs to avoid hitting the DB on every group message
+_probation_cache: set = set()
+
+def load_probation_cache() -> None:
+    """Loads all probation user IDs from the database into the in-memory cache."""
+    global _probation_cache
+    _probation_cache = set(database.get_probation_user_ids())
+    logger.info("Loaded %d users into probation cache.", len(_probation_cache))
+
 
 def _safe_md(text: str) -> str:
     """Escapes Markdown formatting characters from user inputs to prevent parse errors."""
@@ -86,9 +95,9 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """
     Triggered when a user requests to join the chat.
     1. Checks if user has previous history (declined before, joined & left, etc.).
-    2. Resets/Creates their screening session in SQLite.
+    2. Resets/Creates their screening session in the database.
     3. Sends the screening questions paragraph via DM even if they applied before.
-    4. Schedules a 48-hour timeout job in JobQueue.
+    4. The cron job handles the 48-hour timeout.
     5. Alerts admins that screening has started, including their past history badge.
     """
     request = update.chat_join_request
@@ -235,23 +244,27 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if not session:
         await update.message.reply_text(
-            "You do not have any pending join request screenings at this time."
+            "You do not have any pending join request screenings at this time.\n"
+            "ليس لديك أي طلب انضمام قيد المراجعة حالياً."
         )
         return
 
+    # Fetch chosen language for localized responses
+    meta = json.loads(session["user_metadata_json"] or "{}")
+    lang_code = meta.get("language_code", "en")
+
     # Fix: Stop processing messages after user already passed screening
-    if session["status"] == STATUS_APPROVED:
-        await update.message.reply_text(
-            "Your answers have already been submitted and are under review by R/lebanese admins. "
-            "Please wait for an admin to get back to you!"
-        )
-        return
-        
-    if session["status"] == STATUS_PASSED_TO_ADMINS:
-        await update.message.reply_text(
-            "Your answers have already been submitted and are under review by R/lebanese admins. "
-            "Please wait for an admin to get back to you!"
-        )
+    if session["status"] in (STATUS_APPROVED, STATUS_PASSED_TO_ADMINS):
+        if lang_code == "ar":
+            await update.message.reply_text(
+                "تم إرسال إجاباتك وهي قيد المراجعة من قبل إدارة R/lebanese. "
+                "يرجى الانتظار حتى يتواصل معك أحد المسؤولين!"
+            )
+        else:
+            await update.message.reply_text(
+                "Your answers have already been submitted and are under review by R/lebanese admins. "
+                "Please wait for an admin to get back to you!"
+            )
         return
 
     chat_id = session["chat_id"]
@@ -287,9 +300,14 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if res_type == RESULT_SATISFACTORY:
         database.update_session_status(user.id, STATUS_PASSED_TO_ADMINS, answers_text=user_text)
         database.add_user_history(user.id, chat_id, "PASSED_SCREENING", "Answered all questions satisfactorily")
-        await update.message.reply_text(
-            "Thank you! Your answers have been received and submitted to R/lebanese admins for review."
-        )
+        if lang_code == "ar":
+            await update.message.reply_text(
+                "شكراً! تم استلام إجاباتك وإرسالها إلى إدارة R/lebanese للمراجعة."
+            )
+        else:
+            await update.message.reply_text(
+                "Thank you! Your answers have been received and submitted to R/lebanese admins for review."
+            )
 
         transcript_text = database.get_transcript_summary(user.id)
         safe_username = _safe_md(user.username)
@@ -317,9 +335,14 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             # On 3rd or later incomplete attempt, lock the session and push transcript to admins
             database.update_session_status(user.id, STATUS_PASSED_TO_ADMINS, answers_text=user_text)
             database.add_to_transcript(user.id, "bot", "*(Interview concluded due to incomplete answers)*")
-            await update.message.reply_text(
-                "Thank you! Your answers have been received and submitted to R/lebanese admins for review."
-            )
+            if lang_code == "ar":
+                await update.message.reply_text(
+                    "شكراً! تم استلام إجاباتك وإرسالها إلى إدارة R/lebanese للمراجعة."
+                )
+            else:
+                await update.message.reply_text(
+                    "Thank you! Your answers have been received and submitted to R/lebanese admins for review."
+                )
             
             transcript_text = database.get_transcript_summary(user.id)
             safe_username = _safe_md(user.username)
@@ -395,6 +418,7 @@ async def on_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_T
         session = database.get_session(user.id)
         if not session or session["status"] != STATUS_PROBATION:
             database.update_session_status(user.id, STATUS_APPROVED)
+            _probation_cache.discard(user.id)
         await _delete_bot_messages(context, user.id)
         logger.info("Recorded history: User %s joined group %s and session approved", user.id, chat.id)
 
@@ -440,6 +464,7 @@ async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         # Check if this is a probation warning (contains "24 hours" or "24 ساعة")
         if _is_probation_trigger(admin_text):
             database.update_session_status(target_user_id, STATUS_PROBATION)
+            _probation_cache.add(target_user_id)
             await update.message.reply_text(
                 f"⏱ 24-hour probation timer started for user {target_user_id}. "
                 f"They will be kicked if they don't message in the group."
@@ -526,6 +551,7 @@ async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> No
 
         logger.info("Probation timeout for user %s (%s). Kicking.", user_id, user_name)
         database.update_session_status(user_id, STATUS_DISMISSED)
+        _probation_cache.discard(user_id)
         database.add_user_history(user_id, chat_id, "KICKED_PROBATION", "Did not message in group within 24 hours")
 
         # Kick from group (ban + unban = kick without permanent ban)
@@ -553,14 +579,21 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     user = update.effective_user
 
-    # Quick check: is this user on probation?
+    # Quick cache check: is this user on probation?
+    if user.id not in _probation_cache:
+        return
+
+    # User is in cache! Double check DB to be safe
     session = database.get_session(user.id)
     if not session or session["status"] != STATUS_PROBATION:
+        # Cache was stale, fix it and return
+        _probation_cache.discard(user.id)
         return
 
     # User sent a message in the group while on probation — they're safe!
     chat_id = session["chat_id"]
     database.update_session_status(user.id, STATUS_APPROVED)
+    _probation_cache.discard(user.id)
     database.add_user_history(user.id, chat_id, "PROBATION_CLEARED", "User messaged in group within 24 hours")
     logger.info("Probation cleared for user %s", user.id)
 
@@ -617,6 +650,7 @@ async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_T
         # Check if this is a probation warning (contains "24 hours" or "24 ساعة")
         if _is_probation_trigger(msg_text):
             database.update_session_status(target_user_id, STATUS_PROBATION)
+            _probation_cache.add(target_user_id)
             await update.message.reply_text(
                 f"⏱ 24-hour probation timer started for user {target_user_id}. "
                 f"They will be kicked if they don't message in the group."
