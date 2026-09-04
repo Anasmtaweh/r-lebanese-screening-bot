@@ -32,6 +32,7 @@ from handlers import (
     on_user_dm_reply,
     on_group_message,
     cleanup_expired_sessions_job,
+    load_probation_cache,
 )
 
 # Persistent file logging — survives crashes, always available on PythonAnywhere
@@ -77,8 +78,9 @@ def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is missing. Fill it in your .env file.")
 
-    # 1. Initialize PostgreSQL database
+    # 1. Initialize PostgreSQL database and caches
     database.init_db()
+    load_probation_cache()
 
     # 2. Create HTTPXRequest with increased 30s timeouts
     request = HTTPXRequest(connect_timeout=30.0, read_timeout=30.0)

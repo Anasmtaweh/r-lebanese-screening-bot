@@ -215,10 +215,10 @@ def get_active_session(user_id: int) -> Optional[Dict[str, Any]]:
             cur.execute(
                 """
                 SELECT * FROM screening_sessions
-                WHERE user_id = %s AND status != %s
+                WHERE user_id = %s AND status NOT IN (%s, %s)
                 ORDER BY updated_at DESC LIMIT 1
                 """,
-                (user_id, STATUS_DISMISSED),
+                (user_id, STATUS_DISMISSED, STATUS_APPROVED),
             )
             row = cur.fetchone()
             if row:
