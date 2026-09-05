@@ -253,18 +253,36 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     meta = json.loads(session["user_metadata_json"] or "{}")
     lang_code = meta.get("language_code", "en")
 
-    # Fix: Stop processing messages after user already passed screening
-    if session["status"] in (STATUS_APPROVED, STATUS_PASSED_TO_ADMINS):
+    # Fix: If user was already approved and is in the group, tell them to use the group
+    if session["status"] == STATUS_APPROVED:
         if lang_code == "ar":
             await update.message.reply_text(
-                "تم إرسال إجاباتك وهي قيد المراجعة من قبل إدارة R/lebanese. "
-                "يرجى الانتظار حتى يتواصل معك أحد المسؤولين!"
+                "لقد تم قبولك بالفعل! يرجى إرسال رسائلك داخل المجموعة."
             )
         else:
             await update.message.reply_text(
-                "Your answers have already been submitted and are under review by R/lebanese admins. "
-                "Please wait for an admin to get back to you!"
+                "You have already been approved! Please send your messages in the group."
             )
+        return
+
+    # Fix: If user is chatting with admins or waiting for review, forward their message
+    if session["status"] == STATUS_PASSED_TO_ADMINS:
+        safe_name = _safe_md(user.full_name) if user.full_name else str(user.id)
+        await context.bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text=f"💬 User Reply (Awaiting Review) from {safe_name} (ID: `{user.id}`):\n\n「{user_text}」\n\n💡 Use /reply {user.id} <msg> to reply back.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Fix: If user is on probation, just forward to admin but do NOT clear probation status
+    if session["status"] == STATUS_PROBATION:
+        safe_name = _safe_md(user.full_name) if user.full_name else str(user.id)
+        await context.bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text=f"💬 User Reply (On Probation) from {safe_name} (ID: `{user.id}`):\n\n「{user_text}」\n\n💡 They are still on probation.",
+            parse_mode="Markdown"
+        )
         return
 
     chat_id = session["chat_id"]
@@ -685,13 +703,8 @@ async def on_admin_decline_command(update: Update, context: ContextTypes.DEFAULT
     session = database.get_session(target_user_id)
     chat_id = session["chat_id"] if session else int(ADMIN_CHAT_ID or 0)
 
-    try:
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=f"🚫 R/lebanese Application Update:\n\n{reason}",
-        )
-    except TelegramError:
-        pass
+    # Per admin request, do NOT send a decline message to the user
+    # We silently decline their join request instead.
 
     if chat_id:
         try:
