@@ -257,11 +257,11 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if session["status"] == STATUS_APPROVED:
         if lang_code == "ar":
             await update.message.reply_text(
-                "لقد تم قبولك بالفعل! يرجى إرسال رسائلك داخل المجموعة."
+                "لقد تم قبولك بالفعل! يرجى إرسال رسائلك داخل المجموعة. إذا كنت بحاجة إلى المساعدة، يمكنك التواصل مع المشرفين على الخاص."
             )
         else:
             await update.message.reply_text(
-                "You have already been approved! Please send your messages in the group."
+                "You have already been approved! Please send your messages in the group. If you need help, you may contact the admins privately."
             )
         return
 
