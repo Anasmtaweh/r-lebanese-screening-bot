@@ -61,17 +61,7 @@ async def cmd_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         logger.info("Chat ID requested for %s -> %s", chat.title, chat.id)
 
 
-async def ping_healthcheck(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Pings Healthchecks.io every 5 minutes to prove the bot is alive."""
-    if not HEALTHCHECK_URL:
-        return
-        
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.get(HEALTHCHECK_URL)
-            logger.debug("Successfully pinged Healthchecks.io")
-    except Exception as e:
-        logger.warning("Failed to ping Healthchecks.io: %s", e)
+
 
 
 def main() -> None:
@@ -143,18 +133,12 @@ def main() -> None:
     # 5. Register repeating background jobs
     if app.job_queue:
         app.job_queue.run_repeating(
-            ping_healthcheck,
-            interval=300,  # 5 minutes
-            first=10,
-            name="healthcheck_ping",
-        )
-        app.job_queue.run_repeating(
             cleanup_expired_sessions_job,
             interval=600,  # 10 minutes
             first=20,
             name="cleanup_expired_sessions",
         )
-        logger.info("Background jobs scheduled (Healthcheck + Session Cleanup)")
+        logger.info("Background jobs scheduled (Session Cleanup)")
 
     logger.info("R/lebanese Screening Bot is ready.")
 
