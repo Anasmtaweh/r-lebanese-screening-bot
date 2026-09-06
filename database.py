@@ -5,7 +5,7 @@ from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from typing import Any, Dict, List, Optional
 from contextlib import contextmanager
-from config import STATUS_PENDING, STATUS_DISMISSED, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY, STATUS_PROBATION
+from config import STATUS_PENDING, STATUS_DISMISSED, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY, STATUS_PROBATION, STATUS_APPROVED
 
 _db_pool = None
 
