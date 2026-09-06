@@ -22,6 +22,9 @@ ADMIN_USER_IDS = [
     if x.strip().lstrip("-").isdigit()
 ]
 
+# The developer who receives crash logs privately
+DEVELOPER_CHAT_ID = os.getenv("DEVELOPER_CHAT_ID", "")
+
 # Exactly the screening paragraph requested by R/lebanese admins
 SCREENING_QUESTIONS_EN = """Hello! R/lebanese admins here.
 

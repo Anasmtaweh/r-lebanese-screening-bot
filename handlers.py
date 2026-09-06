@@ -11,6 +11,7 @@ import database
 from config import (
     ADMIN_CHAT_ID,
     ADMIN_USER_IDS,
+    DEVELOPER_CHAT_ID,
     SCREENING_QUESTIONS_EN,
     SCREENING_QUESTIONS_AR,
     SCREENING_TIMEOUT_SECONDS,
@@ -878,4 +879,29 @@ async def undo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.info(f"Admin undone message {target_msg_id} for user {target_user_id}")
     except TelegramError as e:
         logger.error(f"Failed to undo message: {e}")
-        await query.answer(f"Could not delete message: {e}", show_alert=True)
+        await query.answer("Failed to delete message.", show_alert=True)
+
+import traceback
+import html
+
+async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a telegram message to notify the developer/admins."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+    
+    if context.error:
+        tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+        tb_string = "".join(tb_list)
+        
+        # We only send the last 2000 chars of the traceback to not spam the chat
+        error_msg = f"🚨 *CRITICAL BOT ERROR*\n\nThe bot just crashed while processing an update! Here is the error:\n\n<pre>{html.escape(tb_string[-2000:])}</pre>"
+        
+        target_id = DEVELOPER_CHAT_ID or 6260588359
+        if target_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=target_id,
+                    text=error_msg,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send error notification to {target_id}: {e}")

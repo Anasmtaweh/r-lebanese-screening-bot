@@ -79,6 +79,9 @@ def main() -> None:
     app = Application.builder().token(BOT_TOKEN).request(request).build()
 
     # 4. Register handlers
+    from handlers import global_error_handler
+    app.add_error_handler(global_error_handler)
+
     # Helper Command: /chat_id (to easily get your Admin Channel ID)
     app.add_handler(CommandHandler("chat_id", cmd_chat_id))
     app.add_handler(CommandHandler("reply", on_admin_reply_command))
