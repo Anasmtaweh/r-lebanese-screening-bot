@@ -23,7 +23,7 @@ class AnswerEvaluator:
     """
 
     def __init__(self, api_key: str = ""):
-        self.api_key = api_key or os.getenv("AI_API_KEY", "")
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
         self.test_mode = os.getenv("TESTING_MODE") == "1"
 
     def evaluate(self, user_text: str, language_code: str = "en") -> Tuple[str, str, bool, Optional[str]]:

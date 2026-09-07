@@ -294,9 +294,13 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if session["status"] == STATUS_AWAITING_USER_REPLY:
         # Pause the timer by putting them back in the admin's court
         database.update_session_status(user.id, STATUS_PASSED_TO_ADMINS)
+        
+        safe_name = _safe_md(user.name)
+        safe_text = _safe_md(user_text)
+        
         await context.bot.send_message(
             chat_id=ADMIN_CHAT_ID,
-            text=f"💬 User Reply from {user.name} (ID: `{user.id}`):\n\n「{user_text}」\n\n💡 Use /reply {user.id} <msg> to reply back.",
+            text=f"💬 User Reply from {safe_name} (ID: `{user.id}`):\n\n「{safe_text}」\n\n💡 Use /reply {user.id} <msg> to reply back.",
             parse_mode="Markdown"
         )
         return
