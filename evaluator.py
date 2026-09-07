@@ -1,8 +1,8 @@
 import json
 import os
 import re
-from typing import Tuple
-import httpx
+from typing import Tuple, Optional
+from google import genai
 from config import INCOMPLETE_PROMPT_EN, INCOMPLETE_PROMPT_AR
 
 # Result Constants
@@ -15,19 +15,22 @@ RESULT_JUNK = "JUNK"
 class AnswerEvaluator:
     """
     Evaluates a user's reply to the screening questions.
-    Returns a tuple: (result_type, feedback_or_summary)
+    Returns a tuple: (result_type, feedback_or_summary, was_ai_used, ai_error_msg)
     - result_type: SATISFACTORY, INCOMPLETE, UNSATISFACTORY, or JUNK
     - feedback_or_summary: Explanation for admins or follow-up prompt for user
+    - was_ai_used: Boolean indicating if the AI (LLM) was used for evaluation
+    - ai_error_msg: String containing the error message if the LLM failed, else None
     """
 
     def __init__(self, api_key: str = ""):
         self.api_key = api_key or os.getenv("AI_API_KEY", "")
         self.test_mode = os.getenv("TESTING_MODE") == "1"
 
-    def evaluate(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
+    def evaluate(self, user_text: str, language_code: str = "en") -> Tuple[str, str, bool, Optional[str]]:
         """
         Main entry point for evaluating a user's reply.
         Prioritizes LLM if available, falls back to rule-based.
+        Returns: (result_type, feedback, was_ai_used, ai_error_msg)
         """
         # HARD GATE: Hebrew/Zionist detection runs BEFORE everything else.
         # This cannot be bypassed by the AI, test mode, or any other code path.
@@ -35,6 +38,8 @@ class AnswerEvaluator:
             return (
                 RESULT_UNSATISFACTORY,
                 "⚠️ FLAGGED: User replied in Hebrew. Requires admin review.",
+                False,
+                None
             )
         text_lower = user_text.strip().lower()
         zionist_keywords = ["israel", "israeli", "zionist", "zionism", "tel aviv", "idf", "צהל", "ישראל", "ישראלי", "ציוני", "صهيوني", "صهيونية", "اسرائيلي", "إسرائيلي", "إسرائيل", "اسرائيل"]
@@ -42,33 +47,43 @@ class AnswerEvaluator:
             return (
                 RESULT_UNSATISFACTORY,
                 "⚠️ FLAGGED: User mentioned Israel/Zionist affiliation. Requires admin review.",
+                False,
+                None
             )
 
         if self.test_mode:
             text_upper = user_text.strip().upper()
             if "TEST_JUNK" in text_upper:
-                return (RESULT_JUNK, user_text)
+                return (RESULT_JUNK, user_text, False, None)
             if "TEST_UNSATISFACTORY" in text_upper:
                 return (
                     RESULT_UNSATISFACTORY,
                     "User response was flagged as unsatisfactory or ineligible.",
+                    False,
+                    None
                 )
             if "TEST_SATISFACTORY" in text_upper:
-                return (RESULT_SATISFACTORY, user_text)
+                return (RESULT_SATISFACTORY, user_text, False, None)
             if "TEST_INCOMPLETE" in text_upper:
                 prompt = INCOMPLETE_PROMPT_AR if language_code == "ar" else INCOMPLETE_PROMPT_EN
                 return (
                     RESULT_INCOMPLETE,
-                    prompt.format(missing_text="• All 4 questions / جميع الأسئلة الأربعة")
+                    prompt.format(missing_text="• All 4 questions / جميع الأسئلة الأربعة"),
+                    False,
+                    None
                 )
 
+        ai_error_msg = None
         if self.api_key:
             try:
-                return self.evaluate_with_llm(user_text, language_code)
+                res, msg = self.evaluate_with_llm(user_text, language_code)
+                return (res, msg, True, None)
             except Exception as e:
+                ai_error_msg = str(e)
                 print(f"LLM evaluation failed ({e}), falling back to rule-based evaluation.")
 
-        return self.evaluate_rule_based(user_text, language_code)
+        res, msg = self.evaluate_rule_based(user_text, language_code)
+        return (res, msg, False, ai_error_msg)
 
     def evaluate_rule_based(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
@@ -110,10 +125,18 @@ class AnswerEvaluator:
             )
 
         # 4. Question-by-Question Coverage Heuristic:
-        has_nationality = any(kw in text_lower for kw in ["yes", "lebanese", "lebanon", "beirut", "lb", "am lebanese", "نعم", "اي", "يب", "أجل", "لبناني", "لبنانية", "لبنان", "بيروت", "no", "not lebanese", "from", "country", "syrian", "iraqi", "egyptian", "jordanian", "palestinian", "iranian", "سوري", "عراقي", "مصري", "أردني", "فلسطيني", "إيراني", "إيرانية", "سورية", "مصرية", "بلد", "جنسية", "من"])
-        has_age = any(kw in text_lower for kw in ["18", "19", "20", "21", "22", "23", "24", "25", "30", "years", "old", "over 18", "عشرين", "سنة", "عمري", "عام", "عمر"])
-        has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub", "ريدت", "قوقل", "جوجل", "صديق", "صاحبي", "بحث", "صدفة", "تيك توك", "تليجرام", "تيليغرام", "رابط", "chatgpt", "chat gpt", "شات", "شات جي بي تي", "ai", "ذكاء", "اصطناعي"])
-        has_reason = any(kw in text_lower for kw in ["community", "people", "talk", "chat", "discuss", "news", "join", "friends", "connect", "know", "live", "اتحدث", "شات", "تعارف", "دردشة", "انضمام", "انضم", "استمتع", "سبب", "تفاعل", "فضول", "شوف", "اشوف", "حابب"])
+        has_nationality = any(kw in text_lower for kw in ["yes", "lebanese", "lebanon", "beirut", "lb", "am lebanese", "نعم", "اي", "يب", "أجل", "لبناني", "لبنانية", "لبنان", "بيروت", "no", "not lebanese", "from", "country", "syrian", "iraqi", "egyptian", "jordanian", "palestinian", "iranian", "سوري", "عراقي", "مصري", "أردني", "فلسطيني", "إيراني", "إيرانية", "سورية", "مصرية", "بلد", "جنسية", "من", "سعود", "مغرب", "جزائر", "تونس", "كويت", "قطر", "امارات", "عمان", "يمن", "سودان", "صومال", "ليبيا"])
+        
+        # Check for numeric age >= 18 or text age keywords
+        has_numeric_age = False
+        for num_str in re.findall(r'\b\d{2}\b', user_text):
+            if int(num_str) >= 18:
+                has_numeric_age = True
+                break
+        has_age = has_numeric_age or any(kw in text_lower for kw in ["years", "old", "over 18", "عشرين", "سنة", "عمري", "عام", "عمر", "فوق"])
+        
+        has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub", "ريدت", "قوقل", "جوجل", "صديق", "صاحب", "صدق", "اصدقاء", "صاحبي", "بحث", "صدفة", "تيك توك", "تليجرام", "تيليغرام", "رابط", "chatgpt", "chat gpt", "شات", "شات جي بي تي", "ai", "ذكاء", "اصطناعي"])
+        has_reason = any(kw in text_lower for kw in ["community", "people", "talk", "chat", "discuss", "news", "join", "friends", "connect", "know", "live", "اتحدث", "شات", "تعارف", "دردشة", "انضمام", "انضم", "استمتع", "سبب", "تفاعل", "فضول", "شوف", "اشوف", "حابب", "صداق", "لعب", "العب", "وقت", "استفاد"])
 
         missing = []
         if not has_nationality:
@@ -137,7 +160,7 @@ class AnswerEvaluator:
 
     def evaluate_with_llm(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
-        Calls Groq API (free Llama-3.1-8B) as a SILENT BACKEND CLASSIFIER.
+        Calls Google Gemini API (gemini-3.6-flash) as a SILENT BACKEND CLASSIFIER.
         The LLM never communicates with the user or generates text for the user.
         It only classifies the response as SATISFACTORY, INCOMPLETE, or UNSATISFACTORY.
         """
@@ -160,28 +183,25 @@ class AnswerEvaluator:
             "- INCOMPLETE | <missing_numbers> (if 1-3 questions were answered, list ONLY the missing numbers separated by commas, e.g., 'INCOMPLETE | 3, 4')"
         )
 
-        reply_token = ""
+        # Initialize Gemini Client
+        client = genai.Client(api_key=self.api_key)
+        
         # Route API calls through PythonAnywhere proxy if applicable
-        proxy_url = "http://proxy.server:3128" if os.environ.get("PYTHONANYWHERE_SITE") else None
-        with httpx.Client(proxy=proxy_url, timeout=15.0) as client:
-            # OpenRouter API (Llama 3.1 8B Instruct - 100% Free)
-            url = "https://openrouter.ai/api/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/Anasmtaweh/r-lebanese-screening-bot",
-                "X-Title": "Lebanese Screening Bot"
-            }
-            payload = {
-                "model": "meta-llama/llama-3.1-8b-instruct:free",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
-                "max_tokens": 15,
-            }
-            resp = client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            reply_token = data["choices"][0]["message"]["content"].strip().upper()
+        if os.environ.get("PYTHONANYWHERE_SITE"):
+            client = genai.Client(
+                api_key=self.api_key, 
+                http_options={'proxy': 'http://proxy.server:3128'}
+            )
+            
+        resp = client.models.generate_content(
+            model='gemini-3.6-flash',
+            contents=prompt,
+        )
+        
+        if not resp.text:
+            raise ValueError("Gemini returned an empty response.")
+            
+        reply_token = resp.text.strip().upper()
 
         if "SATISFACTORY" in reply_token and "UNSATISFACTORY" not in reply_token:
             return (RESULT_SATISFACTORY, user_text)

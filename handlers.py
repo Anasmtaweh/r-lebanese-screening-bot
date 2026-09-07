@@ -122,14 +122,14 @@ async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # 1.5. Debounce check: prevent duplicate DMs if Telegram retries a webhook during cold start
     existing_session = database.get_session(user.id)
-    if existing_session and existing_session.get("status") in [STATUS_PENDING, STATUS_PARTIAL]:
+    if existing_session:
         updated_at = existing_session.get("updated_at")
         if updated_at:
             if updated_at.tzinfo is None:
                 updated_at = updated_at.replace(tzinfo=timezone.utc)
             # If request is within 5 minutes, it's a webhook duplicate, ignore it
             if datetime.now(timezone.utc) - updated_at < timedelta(minutes=5):
-                logger.info(f"Ignoring duplicate join request because user {user.id} recently started.")
+                logger.info(f"Ignoring duplicate join request because user {user.id} recently interacted.")
                 return
         
         # If > 5 minutes, it's a deliberate re-join. Record history and restart them.
@@ -310,8 +310,18 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     # Fix: Evaluate the FULL combined transcript, not just the latest message
     combined_replies = database.get_all_user_replies_combined(user.id)
-    res_type, feedback = evaluator.evaluate(combined_replies, language_code=lang_code)
+    res_type, feedback, was_ai_used, ai_error_msg = evaluator.evaluate(combined_replies, language_code=lang_code)
     logger.info("User %s reply attempt #%s evaluated as %s", user.id, attempt_count, res_type)
+    
+    if ai_error_msg and DEVELOPER_CHAT_ID:
+        try:
+            await context.bot.send_message(
+                chat_id=DEVELOPER_CHAT_ID,
+                text=f"⚠️ *AI Evaluation Failed (Fallback Used)*\n\nUser ID: `{user.id}`\nError: `{ai_error_msg}`",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error("Could not notify developer of AI failure: %s", e)
 
     history_summary = database.format_user_history_summary(user.id, chat_id)
     history_block = f"\n\n{history_summary}" if history_summary else ""
@@ -341,7 +351,8 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await send_admin_notification(context, admin_report)
 
     elif res_type == RESULT_INCOMPLETE:
-        if attempt_count < 3:
+        max_attempts = 3 if was_ai_used else 2
+        if attempt_count < max_attempts:
             database.update_session_status(user.id, STATUS_PARTIAL, answers_text=user_text)
             try:
                 follow_up_msg = await update.message.reply_text(feedback)
@@ -817,13 +828,7 @@ async def on_admin_transcript_command(update: Update, context: ContextTypes.DEFA
 
 
 async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Admin command: /help
-    Shows all available admin commands and how to use them.
-    """
-    message = update.effective_message
-    if not message:
-        return
+    """Sends a list of available admin commands."""
     if not _is_admin(update):
         return
 
@@ -905,3 +910,10 @@ async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYP
                 )
             except Exception as e:
                 logger.error(f"Failed to send error notification to {target_id}: {e}")
+
+async def on_admin_crash_command(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Intentionally crashes the bot to test the global error handler."""
+    if not _is_admin(update):
+        return
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="💥 Triggering a fake crash now! You should receive the error report privately.")
+    raise ValueError("THIS IS A TEST CRASH FOR THE DEVELOPER.")

@@ -25,6 +25,7 @@ from handlers import (
     on_admin_reply_command,
     on_admin_stats_command,
     on_admin_transcript_command,
+    on_admin_crash_command,
     on_chat_member_updated,
     on_join_request,
     on_language_selection,
@@ -89,6 +90,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stats", on_admin_stats_command))
     app.add_handler(CommandHandler("list", on_admin_list_command))
     app.add_handler(CommandHandler("transcript", on_admin_transcript_command))
+    app.add_handler(CommandHandler("test_crash", on_admin_crash_command))
     app.add_handler(CommandHandler("help", on_admin_help_command))
 
 
