@@ -1,5 +1,6 @@
 import json
 import httpx
+import asyncio
 from datetime import datetime, timezone, timedelta
 from evaluator import AnswerEvaluator
 
@@ -12,12 +13,15 @@ user_text = '''لقد جاوبت علي جميع الاسئلة
 عرفته من اصدقائي
 لتكوين اصدقاء و للدردشة'''
 
-res, msg, used_ai, ai_err = ev.evaluate(user_text)
-print('Bot Result:', res)
-if res == 'SATISFACTORY':
-    print('✅ SUCCESS: The rule-based evaluator correctly understood the age (29) and the Arabic keywords!')
-else:
-    print('❌ FAILED:', msg)
+async def run_test():
+    res, msg, used_ai, ai_err = await ev.evaluate(user_text)
+    print('Bot Result:', res)
+    if res == 'SATISFACTORY':
+        print('✅ SUCCESS: The rule-based evaluator correctly understood the age (29) and the Arabic keywords!')
+    else:
+        print('❌ FAILED:', msg)
+
+asyncio.run(run_test())
 
 
 print('\n--- TEST 2: Webhook Debounce Logic ---')

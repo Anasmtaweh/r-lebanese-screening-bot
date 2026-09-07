@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import asyncio
 from typing import Tuple, Optional
 from google import genai
 from config import INCOMPLETE_PROMPT_EN, INCOMPLETE_PROMPT_AR
@@ -26,7 +27,7 @@ class AnswerEvaluator:
         self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
         self.test_mode = os.getenv("TESTING_MODE") == "1"
 
-    def evaluate(self, user_text: str, language_code: str = "en") -> Tuple[str, str, bool, Optional[str]]:
+    async def evaluate(self, user_text: str, language_code: str = "en") -> Tuple[str, str, bool, Optional[str]]:
         """
         Main entry point for evaluating a user's reply.
         Prioritizes LLM if available, falls back to rule-based.
@@ -76,7 +77,7 @@ class AnswerEvaluator:
         ai_error_msg = None
         if self.api_key:
             try:
-                res, msg = self.evaluate_with_llm(user_text, language_code)
+                res, msg = await self.evaluate_with_llm(user_text, language_code)
                 return (res, msg, True, None)
             except Exception as e:
                 ai_error_msg = str(e)
@@ -158,7 +159,7 @@ class AnswerEvaluator:
 
         return (RESULT_SATISFACTORY, user_text)
 
-    def evaluate_with_llm(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
+    async def evaluate_with_llm(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
         Calls Google Gemini API (gemini-3.6-flash) as a SILENT BACKEND CLASSIFIER.
         The LLM never communicates with the user or generates text for the user.
@@ -193,11 +194,26 @@ class AnswerEvaluator:
                 http_options={'proxy': 'http://proxy.server:3128'}
             )
             
-        resp = client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=prompt,
-        )
+        max_retries = 3
+        resp = None
+        last_exception = None
         
+        for attempt in range(max_retries):
+            try:
+                # Use the asynchronous aio client so we don't block the bot!
+                resp = await client.aio.models.generate_content(
+                    model='gemini-3.6-flash',
+                    contents=prompt,
+                )
+                break  # Success, exit the retry loop
+            except Exception as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** (attempt + 1))  # Sleep 2s, then 4s non-blocking
+                
+        if resp is None:
+            raise last_exception
+            
         if not resp.text:
             raise ValueError("Gemini returned an empty response.")
             

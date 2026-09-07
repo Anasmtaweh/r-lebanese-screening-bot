@@ -314,7 +314,7 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     # Fix: Evaluate the FULL combined transcript, not just the latest message
     combined_replies = database.get_all_user_replies_combined(user.id)
-    res_type, feedback, was_ai_used, ai_error_msg = evaluator.evaluate(combined_replies, language_code=lang_code)
+    res_type, feedback, was_ai_used, ai_error_msg = await evaluator.evaluate(combined_replies, language_code=lang_code)
     logger.info("User %s reply attempt #%s evaluated as %s", user.id, attempt_count, res_type)
     
     if ai_error_msg and DEVELOPER_CHAT_ID:
