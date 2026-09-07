@@ -34,6 +34,10 @@ from handlers import (
     on_group_message,
     cleanup_expired_sessions_job,
     load_probation_cache,
+    on_admin_clear_command,
+    on_chat_member_updated,
+    on_admin_probation_en_command,
+    on_admin_probation_ar_command,
 )
 
 # Persistent file logging — survives crashes, always available on PythonAnywhere
@@ -90,12 +94,18 @@ def main() -> None:
     app.add_handler(CommandHandler("stats", on_admin_stats_command))
     app.add_handler(CommandHandler("list", on_admin_list_command))
     app.add_handler(CommandHandler("transcript", on_admin_transcript_command))
+    app.add_handler(CommandHandler("clear", on_admin_clear_command))
+    app.add_handler(CommandHandler("probation_en", on_admin_probation_en_command))
+    app.add_handler(CommandHandler("probation_ar", on_admin_probation_ar_command))
     app.add_handler(CommandHandler("test_crash", on_admin_crash_command))
     app.add_handler(CommandHandler("help", on_admin_help_command))
 
 
     # Join Request Handler
     app.add_handler(ChatJoinRequestHandler(on_join_request))
+    
+    # Chat Member Listener (tracks manual kicks, leaves, approvals)
+    app.add_handler(ChatMemberHandler(on_chat_member_updated, ChatMemberHandler.CHAT_MEMBER))
 
     # Language Selection Callback Handler
     app.add_handler(CallbackQueryHandler(on_language_selection, pattern="^lang_"))

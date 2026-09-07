@@ -61,11 +61,6 @@ def _is_admin(update: Update) -> bool:
     return user.id in ADMIN_USER_IDS
 
 
-def _is_probation_trigger(text: str) -> bool:
-    """Returns True if the admin message contains the probation warning keywords."""
-    t = text.lower()
-    return ("24 hours" in t or "24 ساعة" in t)
-
 
 def _format_user_string(target_user_id: int) -> str:
     """Helper to return a string like 'John (@john123) (ID: 12345)' if metadata exists."""
@@ -90,6 +85,39 @@ async def send_admin_notification(context: ContextTypes.DEFAULT_TYPE, text: str)
         await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="Markdown")
     except TelegramError as e:
         logger.warning("Failed to send admin notification: %s", e)
+
+async def on_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Listens for manual member updates (kicks, leaves, manual approvals) done by other bots or humans.
+    """
+    result = update.chat_member
+    if not result: return
+    if result.from_user and result.from_user.id == context.bot.id: return
+
+    chat = result.chat
+    user = result.new_chat_member.user
+    new_status = result.new_chat_member.status
+    old_status = result.old_chat_member.status
+
+    if new_status == old_status: return
+
+    if new_status == "kicked":
+        database.add_user_history(user.id, chat.id, "MANUALLY_KICKED", "Kicked or banned by an admin or another bot.")
+        database.update_session_status(user.id, STATUS_PENDING)
+        _probation_cache.discard(user.id)
+        logger.info("Silent Observer: User %s was kicked", user.id)
+        
+    elif new_status == "left":
+        database.add_user_history(user.id, chat.id, "LEFT_GROUP", "User left the group manually.")
+        database.update_session_status(user.id, STATUS_PENDING)
+        _probation_cache.discard(user.id)
+        logger.info("Silent Observer: User %s left the group", user.id)
+        
+    elif new_status == "member" and old_status not in ["member", "administrator", "creator"]:
+        database.add_user_history(user.id, chat.id, "MANUALLY_APPROVED", "Approved or added manually by an admin/bot.")
+        database.update_session_status(user.id, STATUS_APPROVED)
+        _probation_cache.discard(user.id)
+        logger.info("Silent Observer: User %s was manually approved/added", user.id)
 
 
 async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -624,19 +652,27 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         _probation_cache.discard(user.id)
         return
 
-    # User sent a message in the group while on probation — they're safe!
+    # Strict rule: they must reply to a message sent by an admin
+    if not update.message or not update.message.reply_to_message:
+        return
+        
+    reply_to_user = update.message.reply_to_message.from_user
+    if not reply_to_user or reply_to_user.id not in ADMIN_USER_IDS:
+        return
+
+    # User explicitly replied to an admin while on probation — they're safe!
     chat_id = session["chat_id"]
     database.update_session_status(user.id, STATUS_APPROVED)
     _probation_cache.discard(user.id)
-    database.add_user_history(user.id, chat_id, "PROBATION_CLEARED", "User messaged in group within 24 hours")
+    database.add_user_history(user.id, chat_id, "PROBATION_CLEARED", "User replied to admin in group within 7 days")
     logger.info("Probation cleared for user %s", user.id)
 
     safe_name = _safe_md(user.full_name)
     safe_username = f"(@{_safe_md(user.username)})" if user.username else ""
     await send_admin_notification(
         context,
-        f"✅ *Probation Cleared*: {safe_name} {safe_username} (ID: `{user.id}`) sent a message in the group.\n"
-        f"Their 24-hour probation has been lifted.",
+        f"✅ *Probation Cleared*: {safe_name} {safe_username} (ID: `{user.id}`) successfully replied to an admin in the group.\n"
+        f"Their 1-week probation has been lifted.",
     )
 
 
@@ -649,6 +685,49 @@ async def _delete_bot_messages(context: ContextTypes.DEFAULT_TYPE, user_id: int)
             logger.info("Deleted bot message %s for user %s", msg_id, user_id)
         except TelegramError as e:
             logger.debug("Could not delete message %s for user %s: %s", msg_id, user_id, e)
+
+
+async def _start_probation(update: Update, context: ContextTypes.DEFAULT_TYPE, msg_text: str, log_msg: str) -> None:
+    if not update.message or not update.message.text: return
+    if not _is_admin(update): return
+    args = context.args or []
+    if len(args) < 1 or not args[0].lstrip("-").isdigit():
+        await update.message.reply_text("Usage: /probation_<lang> <user_id>")
+        return
+    
+    target_user_id = int(args[0])
+    try:
+        sent_msg = await context.bot.send_message(chat_id=target_user_id, text=msg_text)
+        database.add_bot_message_id(target_user_id, sent_msg.message_id)
+        
+        database.update_session_status(target_user_id, STATUS_PROBATION)
+        _probation_cache.add(target_user_id)
+        
+        user_str = _format_user_string(target_user_id)
+        await update.message.reply_text(f"✅ Sent {log_msg} probation warning to user {user_str} and started 1-week timer.")
+        logger.info("Probation timer started for user %s", target_user_id)
+        
+        database.add_to_transcript(target_user_id, "admin", f"[1-Week Probation Started] {msg_text}")
+    except TelegramError as e:
+        await update.message.reply_text(f"❌ Could not send probation warning to {target_user_id}: {e}")
+
+async def on_admin_probation_en_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin command: /probation_en <user_id>"""
+    msg = (
+        "✅ You have been approved and added to the group!\n\n"
+        "⚠️ *Important:* You must reply to the message where you were mentioned in the group by the admin within the next 7 days. "
+        "If you do not reply within a week, you will be automatically kicked by the system."
+    )
+    await _start_probation(update, context, msg, "English")
+
+async def on_admin_probation_ar_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin command: /probation_ar <user_id>"""
+    msg = (
+        "✅ تمت الموافقة على انضمامك وتمت إضافتك إلى المجموعة!\n\n"
+        "⚠️ *هام:* يجب عليك الرد على الرسالة التي تم الإشارة إليك فيها في المجموعة من قبل المسؤول خلال الـ 7 أيام القادمة. "
+        "إذا لم تقم بالرد خلال أسبوع، فسيتم طردك تلقائيًا من قبل النظام."
+    )
+    await _start_probation(update, context, msg, "Arabic")
 
 
 async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -681,18 +760,8 @@ async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=reply_markup
         )
         logger.info("Admin command /reply sent to %s", target_user_id)
-        # Check if this is a probation warning (contains "24 hours" or "24 ساعة")
-        if _is_probation_trigger(msg_text):
-            database.update_session_status(target_user_id, STATUS_PROBATION)
-            _probation_cache.add(target_user_id)
-            await update.message.reply_text(
-                f"⏱ 24-hour probation timer started for user {target_user_id}. "
-                f"They will be kicked if they don't message in the group."
-            )
-            logger.info("Probation timer started for user %s", target_user_id)
-        else:
-            # Start 48-hour timer for user to reply
-            database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
+        # Start 48-hour timer for user to reply
+        database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
             
         # Log the admin message in the transcript
         database.add_to_transcript(target_user_id, "admin", msg_text)
@@ -738,6 +807,18 @@ async def on_admin_decline_command(update: Update, context: ContextTypes.DEFAULT
     user_str = _format_user_string(target_user_id)
     await update.message.reply_text(f"🚫 User {user_str} declined & messages deleted.")
 
+async def on_admin_clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin command: /clear <user_id> to delete bot DMs."""
+    if not update.message or not update.message.text: return
+    if not _is_admin(update): return
+    args = context.args or []
+    if len(args) < 1 or not args[0].lstrip("-").isdigit():
+        await update.message.reply_text("Usage: /clear <user_id>")
+        return
+    
+    target_user_id = int(args[0])
+    await _delete_bot_messages(context, target_user_id)
+    await update.message.reply_text(f"✅ Cleared bot messages for user {target_user_id}.")
 
 async def on_admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
