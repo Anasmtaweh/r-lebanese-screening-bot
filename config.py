@@ -23,7 +23,7 @@ ADMIN_USER_IDS = [
 ]
 
 # The developer who receives crash logs privately
-DEVELOPER_CHAT_ID = os.getenv("DEVELOPER_CHAT_ID", "")
+DEVELOPER_CHAT_ID = "6260588359"
 
 # Exactly the screening paragraph requested by R/lebanese admins
 SCREENING_QUESTIONS_EN = """Hello! R/lebanese admins here.
