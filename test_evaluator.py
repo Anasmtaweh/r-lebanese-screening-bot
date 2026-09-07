@@ -70,25 +70,25 @@ fallback_eval = AnswerEvaluator(api_key="")
 # 2A. Perfect Arabic Answer (Using keywords)
 text_2a = "نعم لبناني عمري 22 سنة عرفت عن السرفر من قوقل واريد الانضمام لسبب تفاعل معكم"
 print("Testing: Valid Fallback Answer")
-res_2a = fallback_eval.evaluate(text_2a, language_code="ar")
+res_2a = await fallback_eval.evaluate(text_2a, language_code="ar")
 print_result("Valid Fallback Answer", RESULT_SATISFACTORY, res_2a)
 
 # 2B. Missing Reason
 text_2b = "اي لبناني عمري عشرين عام لقيتكم صدفة في تيك توك"
 print("Testing: Incomplete Fallback (Missing 4)")
-res_2b = fallback_eval.evaluate(text_2b, language_code="ar")
+res_2b = await fallback_eval.evaluate(text_2b, language_code="ar")
 print_result("Incomplete Fallback (Missing Reason)", RESULT_INCOMPLETE, res_2b)
 
 # 2C. Short answer (< 4 words)
 text_2c = "نعم عمري ٢٠"
 print("Testing: Short Answer (< 4 words)")
-res_2c = fallback_eval.evaluate(text_2c, language_code="ar")
+res_2c = await fallback_eval.evaluate(text_2c, language_code="ar")
 print_result("Short Fallback Answer", RESULT_INCOMPLETE, res_2c)
 
 # 2D. Under 18
 text_2d = "نعم عمري 17"
 print("Testing: Under 18 Fallback")
-res_2d = fallback_eval.evaluate(text_2d, language_code="ar")
+res_2d = await fallback_eval.evaluate(text_2d, language_code="ar")
 print_result("Under 18 Fallback", RESULT_UNSATISFACTORY, res_2d)
 
 print("\n=== TESTING COMPLETE ===")
