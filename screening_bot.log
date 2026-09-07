@@ -1,0 +1,7 @@
+2026-09-08 00:14:57,934 - handlers - INFO - Loaded 0 users into probation cache.
+2026-09-08 00:14:57,997 - __main__ - INFO - R/lebanese Screening Bot is ready.
+2026-09-08 00:14:57,997 - __main__ - INFO - Running Polling mode (Ctrl+C to stop)
+2026-09-08 00:14:58,222 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8791945511:AAGsllzT0Qp2TIBYm11UZN2WZcTJvO3rLlc/getMe "HTTP/1.1 200 OK"
+2026-09-08 00:14:58,290 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8791945511:AAGsllzT0Qp2TIBYm11UZN2WZcTJvO3rLlc/deleteWebhook "HTTP/1.1 200 OK"
+2026-09-08 00:14:58,290 - telegram.ext.Application - INFO - Application started
+2026-09-08 00:14:58,530 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8791945511:AAGsllzT0Qp2TIBYm11UZN2WZcTJvO3rLlc/getUpdates "HTTP/1.1 200 OK"
