@@ -378,6 +378,9 @@ def get_transcript_summary(user_id: int) -> str:
             reply_num += 1
             safe_text = item['text'].replace('*', '').replace('_', '').replace('`', '')
             lines.append(f"👤 *User Reply #{reply_num}:*\n「{safe_text}」")
+        elif item["role"] == "admin":
+            safe_admin_text = item['text'].replace('*', '').replace('_', '').replace('`', '')
+            lines.append(f"👨‍⚖️ *Admin Sent:*\n「{safe_admin_text}」")
         else:
             bullet_lines = [line.strip() for line in item['text'].split('\n') if line.strip().startswith('•')]
             if bullet_lines:

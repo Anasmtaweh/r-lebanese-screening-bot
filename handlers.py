@@ -693,6 +693,10 @@ async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_T
         else:
             # Start 48-hour timer for user to reply
             database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
+            
+        # Log the admin message in the transcript
+        database.add_to_transcript(target_user_id, "admin", msg_text)
+        
     except TelegramError as e:
         await update.message.reply_text(f"❌ Could not send DM to {target_user_id}: {e}")
 
