@@ -62,6 +62,21 @@ def _is_admin(update: Update) -> bool:
 
 
 
+
+def _extract_target_id(update, context) -> int:
+    """Extracts the target user_id from either command args or the replied-to message."""
+    args = context.args or []
+    if args and args[0].lstrip("-").isdigit():
+        return int(args[0])
+    
+    if update.message and update.message.reply_to_message and update.message.reply_to_message.text:
+        import re
+        match = re.search(r"ID:\s*`?(\d+)`?", update.message.reply_to_message.text)
+        if match:
+            return int(match.group(1))
+    return None
+
+
 def _format_user_string(target_user_id: int) -> str:
     """Helper to return a string like 'John (@john123) (ID: 12345)' if metadata exists."""
     session = database.get_session(target_user_id)
@@ -691,11 +706,10 @@ async def _start_probation(update: Update, context: ContextTypes.DEFAULT_TYPE, m
     if not update.message or not update.message.text: return
     if not _is_admin(update): return
     args = context.args or []
-    if len(args) < 1 or not args[0].lstrip("-").isdigit():
-        await update.message.reply_text("Usage: /probation_<lang> <user_id>")
+    target_user_id = _extract_target_id(update, context)
+    if not target_user_id:
+        await update.message.reply_text("Usage: Reply to a bot message with /probation_<lang> or type /probation_<lang> <user_id>")
         return
-    
-    target_user_id = int(args[0])
     try:
         sent_msg = await context.bot.send_message(chat_id=target_user_id, text=msg_text)
         database.add_bot_message_id(target_user_id, sent_msg.message_id)
@@ -741,12 +755,16 @@ async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     args = context.args or []
-    if len(args) < 2 or not args[0].lstrip("-").isdigit():
-        await update.message.reply_text("Usage: /reply <user_id> <message>")
+    target_user_id = _extract_target_id(update, context)
+    if not target_user_id:
+        await update.message.reply_text("Usage: Reply to a bot message with /reply <message> or type /reply <user_id> <message>")
         return
-
-    target_user_id = int(args[0])
-    msg_text = " ".join(args[1:])
+    
+    # If the first arg is the ID, message text starts at args[1], else args[0]
+    if args and args[0] == str(target_user_id):
+        msg_text = " ".join(args[1:])
+    else:
+        msg_text = " ".join(args)
     try:
         sent_msg = await context.bot.send_message(
             chat_id=target_user_id,
@@ -781,13 +799,16 @@ async def on_admin_decline_command(update: Update, context: ContextTypes.DEFAULT
     if not _is_admin(update):
         return
 
-    args = context.args or []
-    if len(args) < 1 or not args[0].lstrip("-").isdigit():
-        await update.message.reply_text("Usage: /decline <user_id> [optional reason]")
+    target_user_id = _extract_target_id(update, context)
+    if not target_user_id:
+        await update.message.reply_text("Usage: Reply to a bot message with /decline [reason] or type /decline <user_id> [reason]")
         return
-
-    target_user_id = int(args[0])
-    reason = " ".join(args[1:]) if len(args) > 1 else "Your application did not meet the screening requirements."
+        
+    args = context.args or []
+    if args and args[0] == str(target_user_id):
+        reason = " ".join(args[1:]) if len(args) > 1 else "Your application did not meet the screening requirements."
+    else:
+        reason = " ".join(args) if args else "Your application did not meet the screening requirements."
 
     session = database.get_session(target_user_id)
     chat_id = session["chat_id"] if session else int(ADMIN_CHAT_ID or 0)
@@ -811,12 +832,10 @@ async def on_admin_clear_command(update: Update, context: ContextTypes.DEFAULT_T
     """Admin command: /clear <user_id> to delete bot DMs."""
     if not update.message or not update.message.text: return
     if not _is_admin(update): return
-    args = context.args or []
-    if len(args) < 1 or not args[0].lstrip("-").isdigit():
-        await update.message.reply_text("Usage: /clear <user_id>")
+    target_user_id = _extract_target_id(update, context)
+    if not target_user_id:
+        await update.message.reply_text("Usage: Reply to a bot message with /clear or type /clear <user_id>")
         return
-    
-    target_user_id = int(args[0])
     await _delete_bot_messages(context, target_user_id)
     await update.message.reply_text(f"✅ Cleared bot messages for user {target_user_id}.")
 
@@ -900,12 +919,10 @@ async def on_admin_transcript_command(update: Update, context: ContextTypes.DEFA
     if not _is_admin(update):
         return
 
-    args = context.args or []
-    if len(args) < 1 or not args[0].lstrip("-").isdigit():
-        await update.message.reply_text("Usage: /transcript <user_id>")
+    target_user_id = _extract_target_id(update, context)
+    if not target_user_id:
+        await update.message.reply_text("Usage: Reply to a bot message with /transcript or type /transcript <user_id>")
         return
-
-    target_user_id = int(args[0])
     transcript_text = database.get_transcript_summary(target_user_id)
     
     if not transcript_text:
