@@ -12,7 +12,7 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "")
 # In .env, you can set SCREENING_TIMEOUT_SECONDS=10 for fast local testing!
 SCREENING_TIMEOUT_SECONDS = int(os.getenv("SCREENING_TIMEOUT_SECONDS", "172800"))
 
-# Probation: 24 hours = 86400 seconds.
+# Probation: 7 days = 604800 seconds.
 PROBATION_TIMEOUT_SECONDS = int(os.getenv("PROBATION_TIMEOUT_SECONDS", "604800"))
 
 # Comma-separated list of Telegram user IDs allowed to run admin commands (/reply, /decline, /stats).
