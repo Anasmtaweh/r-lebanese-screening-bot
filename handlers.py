@@ -840,9 +840,11 @@ async def on_admin_screen_command(update: Update, context: ContextTypes.DEFAULT_
     if existing_session:
         chat_id = existing_session["chat_id"]
     else:
-        # No session exists — we need the group chat_id. Admin must provide it or we use a reasonable default.
-        await update.message.reply_text("⚠️ No existing session found for this user. Cannot determine group chat_id.")
-        return
+        # No session exists — get group chat_id from any other session in the DB
+        chat_id = database.get_any_chat_id()
+        if not chat_id:
+            await update.message.reply_text("⚠️ No sessions exist in the database at all. Cannot determine group chat_id.")
+            return
 
     # Check history
     history_summary = database.format_user_history_summary(target_user_id, chat_id)

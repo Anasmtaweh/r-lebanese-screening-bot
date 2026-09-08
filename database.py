@@ -188,6 +188,17 @@ def get_session(user_id: int) -> Optional[Dict[str, Any]]:
     return None
 
 
+def get_any_chat_id() -> Optional[int]:
+    """Returns the chat_id from any existing session. Used as fallback when a user has no session yet."""
+    with _get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id FROM screening_sessions LIMIT 1")
+            row = cur.fetchone()
+            if row:
+                return row["chat_id"]
+    return None
+
+
 def update_session_language(user_id: int, language_code: str) -> None:
     """Updates the selected language code in the user's metadata JSON."""
     session = get_session(user_id)
