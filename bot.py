@@ -101,6 +101,11 @@ def main() -> None:
 
 
     # Join Request Handler
+    async def log_raw_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.debug("Raw update received: %s", update.update_id)
+
+    from telegram.ext import TypeHandler
+    app.add_handler(TypeHandler(Update, log_raw_update), group=-1)
     app.add_handler(ChatJoinRequestHandler(on_join_request))
     
     # Chat Member Listener (tracks manual kicks, leaves, approvals)
