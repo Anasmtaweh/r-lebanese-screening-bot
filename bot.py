@@ -37,6 +37,7 @@ from handlers import (
     on_admin_clear_command,
     on_admin_probation_en_command,
     on_admin_probation_ar_command,
+    on_admin_screen_command,
 )
 
 # Persistent file logging — survives crashes, always available on PythonAnywhere
@@ -96,6 +97,7 @@ def main() -> None:
     app.add_handler(CommandHandler("clear", on_admin_clear_command))
     app.add_handler(CommandHandler("probation_en", on_admin_probation_en_command))
     app.add_handler(CommandHandler("probation_ar", on_admin_probation_ar_command))
+    app.add_handler(CommandHandler("screen", on_admin_screen_command))
     app.add_handler(CommandHandler("test_crash", on_admin_crash_command))
     app.add_handler(CommandHandler("help", on_admin_help_command))
 
