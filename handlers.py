@@ -818,6 +818,71 @@ async def on_admin_clear_command(update: Update, context: ContextTypes.DEFAULT_T
     await _delete_bot_messages(context, target_user_id)
     await update.message.reply_text(f"✅ Cleared bot messages for user {target_user_id}.")
 
+async def on_admin_screen_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Admin command: /screen <user_id>
+    Manually triggers the screening flow for a user who has a pending join request
+    but never received the screening DM (e.g. due to webhook outage).
+    """
+    if not update.message or not update.message.text:
+        return
+    if not _is_admin(update):
+        return
+
+    target_user_id = _extract_target_id(update, context)
+    if not target_user_id:
+        await update.message.reply_text("Usage: Reply to a bot message with /screen or type /screen <user_id>")
+        return
+
+    # We need a chat_id for the session. Use the group chat_id from config.
+    # Try to get it from an existing session first, otherwise use ADMIN_CHAT_ID as fallback.
+    existing_session = database.get_session(target_user_id)
+    if existing_session:
+        chat_id = existing_session["chat_id"]
+    else:
+        # No session exists — we need the group chat_id. Admin must provide it or we use a reasonable default.
+        await update.message.reply_text("⚠️ No existing session found for this user. Cannot determine group chat_id.")
+        return
+
+    # Check history
+    history_summary = database.format_user_history_summary(target_user_id, chat_id)
+    history_block = f"\n\n{history_summary}" if history_summary else "\n\n✨ First-time applicant."
+
+    # Reset their session
+    database.add_or_reset_session(target_user_id, chat_id)
+
+    # Send the language selection DM
+    intro_text = "Hello! I am the automated screening bot for R/lebanese. Please choose your language to continue:\n\nمرحباً! أنا بوت الفحص الآلي لمجتمع R/lebanese. الرجاء اختيار اللغة للمتابعة:"
+    keyboard = [
+        [
+            InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+            InlineKeyboardButton("🇱🇧 عربي", callback_data="lang_ar"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    try:
+        sent_msg = await context.bot.send_message(
+            chat_id=target_user_id,
+            text=intro_text,
+            reply_markup=reply_markup
+        )
+        database.add_bot_message_id(target_user_id, sent_msg.message_id)
+        logger.info("Manual /screen: Sent language selection DM to user %s", target_user_id)
+    except TelegramError as e:
+        await update.message.reply_text(f"❌ Could not DM user {target_user_id}: {e}")
+        return
+
+    user_str = _format_user_string(target_user_id)
+    await update.message.reply_text(f"✅ Screening DM sent to user {user_str}. 48-hour timer started.")
+
+    await send_admin_notification(
+        context,
+        f"✉️ *Manual Screen:* Screening DM sent to ID: `{target_user_id}`\n"
+        f"{history_block}\n"
+        f"48-hour rolling timer started.",
+    )
+
 async def on_admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Admin command: /stats
