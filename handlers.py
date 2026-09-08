@@ -101,38 +101,6 @@ async def send_admin_notification(context: ContextTypes.DEFAULT_TYPE, text: str)
     except TelegramError as e:
         logger.warning("Failed to send admin notification: %s", e)
 
-async def on_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Listens for manual member updates (kicks, leaves, manual approvals) done by other bots or humans.
-    """
-    result = update.chat_member
-    if not result: return
-    if result.from_user and result.from_user.id == context.bot.id: return
-
-    chat = result.chat
-    user = result.new_chat_member.user
-    new_status = result.new_chat_member.status
-    old_status = result.old_chat_member.status
-
-    if new_status == old_status: return
-
-    if new_status == "kicked":
-        database.add_user_history(user.id, chat.id, "MANUALLY_KICKED", "Kicked or banned by an admin or another bot.")
-        database.update_session_status(user.id, STATUS_PENDING)
-        _probation_cache.discard(user.id)
-        logger.info("Silent Observer: User %s was kicked", user.id)
-        
-    elif new_status == "left":
-        database.add_user_history(user.id, chat.id, "LEFT_GROUP", "User left the group manually.")
-        database.update_session_status(user.id, STATUS_PENDING)
-        _probation_cache.discard(user.id)
-        logger.info("Silent Observer: User %s left the group", user.id)
-        
-    elif new_status == "member" and old_status not in ["member", "administrator", "creator"]:
-        database.add_user_history(user.id, chat.id, "MANUALLY_APPROVED", "Approved or added manually by an admin/bot.")
-        database.update_session_status(user.id, STATUS_APPROVED)
-        _probation_cache.discard(user.id)
-        logger.info("Silent Observer: User %s was manually approved/added", user.id)
 
 
 async def on_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -473,11 +441,11 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
 
 
-
 async def on_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Triggered when a user's membership status in the chat changes (e.g. joined or left).
-    Records APPROVED_JOINED or LEFT_GROUP in permanent user history.
+    Triggered when a user's membership status in the chat changes.
+    Handles: joins, leaves, kicks, and manual approvals.
+    Records events in permanent user history and manages probation state.
     """
     chat_member = update.chat_member
     if not chat_member:
@@ -487,6 +455,9 @@ async def on_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_T
     chat = update.effective_chat
     old_status = chat_member.old_chat_member.status
     new_status = chat_member.new_chat_member.status
+
+    if old_status == new_status:
+        return
 
     # User joined / was approved
     if old_status in (ChatMember.LEFT, ChatMember.BANNED) and new_status in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER):
@@ -499,10 +470,19 @@ async def on_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_T
         await _delete_bot_messages(context, user.id)
         logger.info("Recorded history: User %s joined group %s and session approved", user.id, chat.id)
 
-    # User left / was kicked
-    elif old_status in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR) and new_status in (ChatMember.LEFT, ChatMember.BANNED):
-        database.add_user_history(user.id, chat.id, "LEFT_GROUP", "User left or was removed from group")
+    # User left voluntarily
+    elif old_status in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR) and new_status == ChatMember.LEFT:
+        database.add_user_history(user.id, chat.id, "LEFT_GROUP", "User left the group manually.")
+        database.update_session_status(user.id, STATUS_PENDING)
+        _probation_cache.discard(user.id)
         logger.info("Recorded history: User %s left group %s", user.id, chat.id)
+
+    # User was kicked / banned
+    elif old_status in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR) and new_status == ChatMember.BANNED:
+        database.add_user_history(user.id, chat.id, "MANUALLY_KICKED", "Kicked or banned by an admin or another bot.")
+        database.update_session_status(user.id, STATUS_PENDING)
+        _probation_cache.discard(user.id)
+        logger.info("Recorded history: User %s was kicked from group %s", user.id, chat.id)
 
 
 async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -629,7 +609,7 @@ async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> No
         logger.info("Probation timeout for user %s (%s). Kicking.", user_id, user_name)
         database.update_session_status(user_id, STATUS_DISMISSED)
         _probation_cache.discard(user_id)
-        database.add_user_history(user_id, chat_id, "KICKED_PROBATION", "Did not message in group within 24 hours")
+        database.add_user_history(user_id, chat_id, "KICKED_PROBATION", "Did not reply to admin in group within 7 days")
 
         # Kick from group (ban + unban = kick without permanent ban)
         try:
@@ -641,7 +621,7 @@ async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> No
 
         await send_admin_notification(
             context,
-            f"🚫 *24h Probation Expired*: User {user_name} (ID: `{user_id}`) did not message in the group.\n"
+            f"🚫 *1-Week Probation Expired*: User {user_name} (ID: `{user_id}`) did not reply to an admin in the group.\n"
             f"They have been automatically kicked.",
         )
 
@@ -705,7 +685,6 @@ async def _delete_bot_messages(context: ContextTypes.DEFAULT_TYPE, user_id: int)
 async def _start_probation(update: Update, context: ContextTypes.DEFAULT_TYPE, msg_text: str, log_msg: str) -> None:
     if not update.message or not update.message.text: return
     if not _is_admin(update): return
-    args = context.args or []
     target_user_id = _extract_target_id(update, context)
     if not target_user_id:
         await update.message.reply_text("Usage: Reply to a bot message with /probation_<lang> or type /probation_<lang> <user_id>")
