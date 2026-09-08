@@ -35,7 +35,6 @@ from handlers import (
     cleanup_expired_sessions_job,
     load_probation_cache,
     on_admin_clear_command,
-    on_chat_member_updated,
     on_admin_probation_en_command,
     on_admin_probation_ar_command,
 )
@@ -113,11 +112,6 @@ def main() -> None:
     # Undo Admin Reply Callback Handler
     app.add_handler(CallbackQueryHandler(undo_callback, pattern="^undo_"))
 
-    # Chat Member Status Handler (Tracks when users join or leave the group)
-    app.add_handler(
-        ChatMemberHandler(on_chat_member_updated, ChatMemberHandler.CHAT_MEMBER)
-    )
-
     # Admin Relay Handler (Triggered when replying to a bot notification in Admin chat)
     app.add_handler(
         MessageHandler(
@@ -164,7 +158,8 @@ def main() -> None:
         app.run_webhook(
             listen="0.0.0.0",
             port=port,
-            webhook_url=f"{render_url}"
+            webhook_url=f"{render_url}",
+            allowed_updates=Update.ALL_TYPES,
         )
     else:
         logger.info("Running Polling mode (Ctrl+C to stop)")
