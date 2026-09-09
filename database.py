@@ -5,7 +5,7 @@ from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from typing import Any, Dict, List, Optional
 from contextlib import contextmanager
-from config import STATUS_PENDING, STATUS_DISMISSED, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY, STATUS_PROBATION, STATUS_APPROVED
+from config import STATUS_PENDING, STATUS_DISMISSED, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY, STATUS_PROBATION, STATUS_APPROVED, STATUS_DECLINED
 
 _db_pool = None
 
@@ -217,10 +217,10 @@ def get_active_session(user_id: int) -> Optional[Dict[str, Any]]:
             cur.execute(
                 """
                 SELECT * FROM screening_sessions
-                WHERE user_id = %s AND status NOT IN (%s, %s)
+                WHERE user_id = %s AND status NOT IN (%s, %s, %s)
                 ORDER BY updated_at DESC LIMIT 1
                 """,
-                (user_id, STATUS_DISMISSED, STATUS_APPROVED),
+                (user_id, STATUS_DISMISSED, STATUS_APPROVED, STATUS_DECLINED),
             )
             row = cur.fetchone()
             if row:

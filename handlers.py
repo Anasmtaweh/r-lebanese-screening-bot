@@ -216,7 +216,10 @@ async def on_language_selection(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     if not query:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning("Callback query.answer() failed (likely expired during cold start): %s", e)
 
     user = update.effective_user
     lang = query.data.split("_")[1]  # 'en' or 'ar'
@@ -418,27 +421,55 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
 
     elif res_type == RESULT_JUNK:
-        # Silently decline on the spot! Do NOT send any DM to the user.
-        database.update_session_status(user.id, STATUS_DECLINED, answers_text=user_text)
-        database.add_user_history(user.id, chat_id, "DECLINED_JUNK", "Declined on the spot for junk/spam reply")
+        # SAFETY NET: On the first attempt, never auto-decline. Give them a chance
+        # by downgrading JUNK to INCOMPLETE and re-asking the screening questions.
+        if attempt_count <= 1:
+            logger.info("JUNK on first attempt for user %s — downgrading to INCOMPLETE and re-asking questions.", user.id)
+            database.update_session_status(user.id, STATUS_PARTIAL, answers_text=user_text)
+            if lang_code == "ar":
+                follow_up = (
+                    "يرجى الإجابة على جميع الأسئلة الأربعة حتى تتم مراجعة طلبك:\n\n"
+                    "1. هل أنت لبناني؟ إذا لا، من أي بلد أنت؟\n"
+                    "2. هل عمرك 18 سنة أو أكثر؟\n"
+                    "3. كيف عرفت عن السيرفر؟\n"
+                    "4. لماذا تريد الانضمام إلى السيرفر؟"
+                )
+            else:
+                follow_up = (
+                    "Please answer all 4 screening questions so your request can be reviewed:\n\n"
+                    "1. Are you Lebanese? If not, what country are you from?\n"
+                    "2. Are you 18 or over?\n"
+                    "3. How did you find out about our server?\n"
+                    "4. Why are you interested in joining our server?"
+                )
+            try:
+                follow_up_msg = await update.message.reply_text(follow_up)
+                database.add_bot_message_id(user.id, follow_up_msg.message_id)
+                database.add_to_transcript(user.id, "bot", follow_up)
+            except TelegramError as e:
+                logger.error("Could not send follow-up prompt to %s: %s", user.id, e)
+        else:
+            # 2nd+ junk attempt: silently decline on the spot. Do NOT send any DM to the user.
+            database.update_session_status(user.id, STATUS_DECLINED, answers_text=user_text)
+            database.add_user_history(user.id, chat_id, "DECLINED_JUNK", "Declined on the spot for junk/spam reply")
 
-        # Silently decline their Telegram join request
-        try:
-            await context.bot.decline_chat_join_request(chat_id=chat_id, user_id=user.id)
-            logger.info("Silently declined join request for user %s due to JUNK reply", user.id)
-        except TelegramError as e:
-            logger.error("Error declining join request for user %s: %s", user.id, e)
+            # Silently decline their Telegram join request
+            try:
+                await context.bot.decline_chat_join_request(chat_id=chat_id, user_id=user.id)
+                logger.info("Silently declined join request for user %s due to JUNK reply", user.id)
+            except TelegramError as e:
+                logger.error("Error declining join request for user %s: %s", user.id, e)
 
-        # Notify Admins with the user's junk reply
-        safe_username = _safe_md(user.username)
-        safe_name = _safe_md(user.full_name)
-        username_str = f"(@{safe_username}) " if safe_username else ""
-        await send_admin_notification(
-            context,
-            f"🗑️ *Automatically Declined: Junk Reply*\n"
-            f"👤 {safe_name} {username_str}| ID: `{user.id}`\n\n"
-            f"💬 Their Reply: \"{user_text}\"",
-        )
+            # Notify Admins with the user's junk reply
+            safe_username = _safe_md(user.username)
+            safe_name = _safe_md(user.full_name)
+            username_str = f"(@{safe_username}) " if safe_username else ""
+            await send_admin_notification(
+                context,
+                f"🗑️ *Automatically Declined: Junk Reply*\n"
+                f"👤 {safe_name} {username_str}| ID: `{user.id}`\n\n"
+                f"💬 Their Reply: \"{user_text}\"",
+            )
 
 
 async def on_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -518,18 +549,9 @@ async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=reply_markup
         )
         logger.info("Admin relayed message to user %s", target_user_id)
-        # Check if this is a probation warning (contains "24 hours" or "24 ساعة")
-        if _is_probation_trigger(admin_text):
-            database.update_session_status(target_user_id, STATUS_PROBATION)
-            _probation_cache.add(target_user_id)
-            await update.message.reply_text(
-                f"⏱ 24-hour probation timer started for user {target_user_id}. "
-                f"They will be kicked if they don't message in the group."
-            )
-            logger.info("Probation timer started for user %s", target_user_id)
-        else:
-            # Start 48-hour timer for user to reply
-            database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
+        # Start 48-hour timer for user to reply
+        # (Probation is handled separately via /probation_en and /probation_ar commands)
+        database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
     except TelegramError as e:
         logger.error("Could not relay message to user %s: %s", target_user_id, e)
         await update.message.reply_text(
