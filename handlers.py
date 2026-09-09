@@ -17,6 +17,7 @@ from config import (
     SCREENING_QUESTIONS_AR,
     SCREENING_TIMEOUT_SECONDS,
     PROBATION_TIMEOUT_SECONDS,
+    PROBATION_BLOCKED_TIMEOUT_SECONDS,
     STATUS_APPROVED,
     STATUS_DECLINED,
     STATUS_DISMISSED,
@@ -25,6 +26,7 @@ from config import (
     STATUS_PENDING,
     STATUS_AWAITING_USER_REPLY,
     STATUS_PROBATION,
+    STATUS_PROBATION_BLOCKED,
 )
 from evaluator import (
     AnswerEvaluator,
@@ -647,6 +649,46 @@ async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> No
             f"They have been automatically kicked.",
         )
 
+    # --- Blocked-user probation timeout: 24 hours ---
+    try:
+        expired_blocked = database.get_expired_probation_blocked_sessions(PROBATION_BLOCKED_TIMEOUT_SECONDS)
+    except Exception as e:
+        logger.error("Error fetching expired blocked probation sessions: %s", e)
+        expired_blocked = []
+
+    if expired_blocked:
+        logger.info("Cron found %s expired blocked-probation sessions. Processing...", len(expired_blocked))
+
+    for session in expired_blocked:
+        user_id = session["user_id"]
+        chat_id = session["chat_id"]
+
+        meta = {}
+        try:
+            meta = json.loads(session.get("user_metadata_json") or "{}")
+        except Exception as e:
+            logger.debug("Failed to parse user_metadata_json for user %s: %s", user_id, e)
+        user_name = _safe_md(meta.get("full_name")) or str(user_id)
+
+        logger.info("24h blocked probation timeout for user %s (%s). Kicking.", user_id, user_name)
+        database.update_session_status(user_id, STATUS_DISMISSED)
+        _probation_cache.discard(user_id)
+        database.add_user_history(user_id, chat_id, "KICKED_PROBATION_BLOCKED", "Did not reply to admin in group within 24 hours (blocked bot)")
+
+        # Kick from group (ban + unban = kick without permanent ban)
+        try:
+            await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
+            await context.bot.unban_chat_member(chat_id=chat_id, user_id=user_id)
+            logger.info("Kicked user %s from group %s (blocked probation expired)", user_id, chat_id)
+        except TelegramError as e:
+            logger.error("Error kicking user %s from group: %s", user_id, e)
+
+        await send_admin_notification(
+            context,
+            f"🚫 *24-Hour Probation Expired*: User {user_name} (ID: `{user_id}`) blocked the bot and did not reply in the group within 24 hours.\n"
+            f"They have been automatically kicked.",
+        )
+
 
 async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -664,10 +706,12 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     # User is in cache! Double check DB to be safe
     session = database.get_session(user.id)
-    if not session or session["status"] != STATUS_PROBATION:
+    if not session or session["status"] not in (STATUS_PROBATION, STATUS_PROBATION_BLOCKED):
         # Cache was stale, fix it and return
         _probation_cache.discard(user.id)
         return
+
+    is_blocked_probation = session["status"] == STATUS_PROBATION_BLOCKED
 
     # Strict rule: they must reply to a message sent by an admin
     if not update.message or not update.message.reply_to_message:
@@ -679,17 +723,18 @@ async def on_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     # User explicitly replied to an admin while on probation — they're safe!
     chat_id = session["chat_id"]
+    probation_label = "24-hour" if is_blocked_probation else "1-week"
     database.update_session_status(user.id, STATUS_APPROVED)
     _probation_cache.discard(user.id)
-    database.add_user_history(user.id, chat_id, "PROBATION_CLEARED", "User replied to admin in group within 7 days")
-    logger.info("Probation cleared for user %s", user.id)
+    database.add_user_history(user.id, chat_id, "PROBATION_CLEARED", f"User replied to admin in group ({probation_label} probation)")
+    logger.info("Probation cleared for user %s (%s)", user.id, probation_label)
 
     safe_name = _safe_md(user.full_name)
     safe_username = f"(@{_safe_md(user.username)})" if user.username else ""
     await send_admin_notification(
         context,
         f"✅ *Probation Cleared*: {safe_name} {safe_username} (ID: `{user.id}`) successfully replied to an admin in the group.\n"
-        f"Their 1-week probation has been lifted.",
+        f"Their {probation_label} probation has been lifted.",
     )
 
 
@@ -743,6 +788,39 @@ async def on_admin_probation_ar_command(update: Update, context: ContextTypes.DE
         "إذا لم تقم بالرد خلال أسبوع، فسيتم طردك تلقائيًا من قبل النظام."
     )
     await _start_probation(update, context, msg, "Arabic")
+
+
+async def on_admin_probation_blocked_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin command: /pb <user_id> — 24-hour probation for users who blocked the bot."""
+    if not update.message or not update.message.text:
+        return
+    if not _is_admin(update):
+        return
+    target_user_id = _extract_target_id(update, context)
+    if not target_user_id:
+        await update.message.reply_text("Usage: /pb <user_id>")
+        return
+
+    # Get user metadata from existing session, or create a minimal one
+    session = database.get_session(target_user_id)
+    if not session:
+        # Create a session with ADMIN_CHAT_ID as the chat_id (the group they were added to)
+        from config import ADMIN_CHAT_ID
+        chat_id = int(ADMIN_CHAT_ID) if ADMIN_CHAT_ID else update.effective_chat.id
+        database.add_or_reset_session(target_user_id, chat_id, {"full_name": str(target_user_id)})
+
+    database.update_session_status(target_user_id, STATUS_PROBATION_BLOCKED)
+    _probation_cache.add(target_user_id)
+
+    user_str = _format_user_string(target_user_id)
+    await update.message.reply_text(
+        f"✅ 24-hour blocked-user probation started for {user_str}.\n"
+        f"They must reply to an admin message in the group within 24 hours or they will be auto-kicked.\n"
+        f"⚠️ No DM was sent (user blocked the bot)."
+    )
+    logger.info("Blocked probation (24h) started for user %s", target_user_id)
+    database.add_to_transcript(target_user_id, "admin", "[24-Hour Blocked Probation Started]")
+    database.add_user_history(target_user_id, session["chat_id"] if session else 0, "PROBATION_BLOCKED_STARTED", "User blocked the bot — 24h probation set")
 
 
 async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
