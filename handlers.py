@@ -1,9 +1,10 @@
 import logging
 import re
 import json
+import traceback
+import html
 from datetime import datetime, timezone, timedelta
-from typing import Optional
-from telegram import Chat, ChatMember, ChatMemberUpdated, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Chat, ChatMember, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
@@ -70,7 +71,7 @@ def _extract_target_id(update, context) -> int:
         return int(args[0])
     
     if update.message and update.message.reply_to_message and update.message.reply_to_message.text:
-        import re
+        # re is already imported at the top
         match = re.search(r"ID:\s*`?(\d+)`?", update.message.reply_to_message.text)
         if match:
             return int(match.group(1))
@@ -309,7 +310,7 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # Pause the timer by putting them back in the admin's court
         database.update_session_status(user.id, STATUS_PASSED_TO_ADMINS)
         
-        safe_name = _safe_md(user.name)
+        safe_name = _safe_md(user.full_name)
         safe_text = _safe_md(user_text)
         
         await context.bot.send_message(
@@ -341,8 +342,7 @@ async def on_user_dm_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         except Exception as e:
             logger.error("Could not notify developer of AI failure: %s", e)
 
-    history_summary = database.format_user_history_summary(user.id, chat_id)
-    history_block = f"\n\n{history_summary}" if history_summary else ""
+
 
     if res_type == RESULT_SATISFACTORY:
         database.update_session_status(user.id, STATUS_PASSED_TO_ADMINS, answers_text=user_text)
@@ -549,6 +549,8 @@ async def on_admin_relay_reply(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=reply_markup
         )
         logger.info("Admin relayed message to user %s", target_user_id)
+        # Log the admin message in the transcript
+        database.add_to_transcript(target_user_id, "admin", admin_text)
         # Start 48-hour timer for user to reply
         # (Probation is handled separately via /probation_en and /probation_ar commands)
         database.update_session_status(target_user_id, STATUS_AWAITING_USER_REPLY)
@@ -570,10 +572,8 @@ async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> No
         logger.error("Error fetching expired sessions: %s", e)
         return
 
-    if not expired_sessions:
-        return
-
-    logger.info("Cron found %s expired sessions. Processing...", len(expired_sessions))
+    if expired_sessions:
+        logger.info("Cron found %s expired sessions. Processing...", len(expired_sessions))
 
     for session in expired_sessions:
         user_id = session["user_id"]
@@ -583,8 +583,8 @@ async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> No
         meta = {}
         try:
             meta = json.loads(session.get("user_metadata_json") or "{}")
-        except:
-            pass
+        except Exception as e:
+            logger.debug("Failed to parse user_metadata_json for user %s: %s", user_id, e)
         user_name = _safe_md(meta.get("full_name")) or str(user_id)
         
         logger.info("Timeout fired for user %s (%s). Auto-dismissing.", user_id, user_name)
@@ -607,7 +607,7 @@ async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> No
             f"Their join request was automatically DECLINED and screening DM messages deleted.",
         )
 
-    # --- Probation timeout: 24 hours ---
+    # --- Probation timeout: 7 days ---
     try:
         expired_probation = database.get_expired_probation_sessions(PROBATION_TIMEOUT_SECONDS)
     except Exception as e:
@@ -624,8 +624,8 @@ async def cleanup_expired_sessions_job(context: ContextTypes.DEFAULT_TYPE) -> No
         meta = {}
         try:
             meta = json.loads(session.get("user_metadata_json") or "{}")
-        except:
-            pass
+        except Exception as e:
+            logger.debug("Failed to parse user_metadata_json for user %s: %s", user_id, e)
         user_name = _safe_md(meta.get("full_name")) or str(user_id)
 
         logger.info("Probation timeout for user %s (%s). Kicking.", user_id, user_name)
@@ -766,6 +766,9 @@ async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_T
         msg_text = " ".join(args[1:])
     else:
         msg_text = " ".join(args)
+    if not msg_text.strip():
+        await update.message.reply_text("Usage: /reply <user_id> <message text>")
+        return
     try:
         sent_msg = await context.bot.send_message(
             chat_id=target_user_id,
@@ -933,7 +936,7 @@ async def on_admin_transcript_command(update: Update, context: ContextTypes.DEFA
         return
         
     user_str = _format_user_string(target_user_id)
-    await update.message.reply_text(f"📄 Transcript for {user_str}:\n\n{transcript_text}")
+    await update.message.reply_text(f"📄 Transcript for {user_str}:\n\n{transcript_text}", parse_mode="Markdown")
 
 
 async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -995,9 +998,6 @@ async def undo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error(f"Failed to undo message: {e}")
         await query.answer("Failed to delete message.", show_alert=True)
 
-import traceback
-import html
-
 async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer/admins."""
     logger.error("Exception while handling an update:", exc_info=context.error)
@@ -1007,7 +1007,7 @@ async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYP
         tb_string = "".join(tb_list)
         
         # We only send the last 2000 chars of the traceback to not spam the chat
-        error_msg = f"🚨 *CRITICAL BOT ERROR*\n\nThe bot just crashed while processing an update! Here is the error:\n\n<pre>{html.escape(tb_string[-2000:])}</pre>"
+        error_msg = f"🚨 <b>CRITICAL BOT ERROR</b>\n\nThe bot just crashed while processing an update! Here is the error:\n\n<pre>{html.escape(tb_string[-2000:])}</pre>"
         
         target_id = DEVELOPER_CHAT_ID or 6260588359
         if target_id:
@@ -1020,7 +1020,7 @@ async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYP
             except Exception as e:
                 logger.error(f"Failed to send error notification to {target_id}: {e}")
 
-async def on_admin_crash_command(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def on_admin_crash_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Intentionally crashes the bot to test the global error handler."""
     if not _is_admin(update):
         return

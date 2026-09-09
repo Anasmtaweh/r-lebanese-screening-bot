@@ -33,13 +33,17 @@ def _get_connection():
             # Ping to check if connection is alive (handles idle drop by Supabase)
             with conn.cursor() as cur:
                 cur.execute("SELECT 1")
+            conn.commit()  # Clear the implicit transaction from the ping
         except (psycopg2.OperationalError, psycopg2.InterfaceError):
-            # Connection is dead, throw it away and create a fresh one
+            # Connection is dead, throw it away and get a fresh one from the pool
             _db_pool.putconn(conn, close=True)
-            conn = psycopg2.connect(get_db_url(), cursor_factory=RealDictCursor)
+            conn = _db_pool.getconn()
 
         try:
             yield conn
+        except Exception:
+            conn.rollback()  # Rollback aborted transactions before returning to pool
+            raise
         finally:
             _db_pool.putconn(conn)
     else:
@@ -336,7 +340,7 @@ def increment_attempt_count(user_id: int) -> int:
             cur.execute(
                 """
                 UPDATE screening_sessions
-                SET attempt_count = %s
+                SET attempt_count = %s, updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = %s
                 """,
                 (new_count, user_id),
@@ -423,7 +427,7 @@ def get_screening_stats() -> Dict[str, int]:
             cur.execute("SELECT COUNT(*) as c FROM user_history WHERE event_type = 'APPROVED_JOINED'")
             accepted = cur.fetchone()["c"] or 0
 
-            cur.execute("SELECT COUNT(*) as c FROM screening_sessions WHERE status IN (%s, %s)", ("PENDING", "PARTIAL"))
+            cur.execute("SELECT COUNT(*) as c FROM screening_sessions WHERE status IN (%s, %s)", (STATUS_PENDING, STATUS_PARTIAL))
             active = cur.fetchone()["c"] or 0
 
             return {
@@ -468,11 +472,11 @@ def get_pending_users(limit: int = 20) -> List[Dict[str, Any]]:
                 """
                 SELECT user_id, updated_at as created_at, user_metadata_json
                 FROM screening_sessions
-                WHERE status IN ('PENDING', 'PARTIAL')
+                WHERE status IN (%s, %s)
                 ORDER BY updated_at DESC
                 LIMIT %s
                 """,
-                (limit,)
+                (STATUS_PENDING, STATUS_PARTIAL, limit,)
             )
             rows = []
             for r in cur.fetchall():
