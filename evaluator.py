@@ -1,4 +1,4 @@
-import json
+
 import os
 import re
 import asyncio
@@ -96,20 +96,7 @@ class AnswerEvaluator:
         """
         text_lower = user_text.strip().lower()
 
-        # 1. Check for Hebrew characters or Zionist/Israeli keywords
-        if re.search(r'[\u0590-\u05FF]', user_text):
-            return (
-                RESULT_UNSATISFACTORY,
-                "⚠️ FLAGGED: User replied in Hebrew. Requires admin review.",
-            )
-        zionist_keywords = ["israel", "israeli", "zionist", "zionism", "tel aviv", "idf", "צהל", "ישראל", "ישראלי", "ציוני", "صهيوني", "صهيونية", "اسرائيلي", "إسرائيلي", "إسرائيل", "اسرائيل"]
-        if any(kw in text_lower for kw in zionist_keywords):
-            return (
-                RESULT_UNSATISFACTORY,
-                "⚠️ FLAGGED: User mentioned Israel/Zionist affiliation. Requires admin review.",
-            )
-
-        # 2. Check for obvious under-age indicators
+        # 1. Check for obvious under-age indicators
         words = text_lower.split()
         if "not 18" in text_lower or "under 18" in text_lower or "17" in words or "16" in words or "15" in words:
             return (
@@ -117,7 +104,7 @@ class AnswerEvaluator:
                 "User indicated they are under 18 years old.",
             )
 
-        # 3. Check for extremely short or lazy answers (e.g. "yes" or "ok")
+        # 2. Check for extremely short or lazy answers (e.g. "yes" or "ok")
         if len(words) < 4:
             prompt = INCOMPLETE_PROMPT_AR if language_code == "ar" else INCOMPLETE_PROMPT_EN
             return (
@@ -125,19 +112,19 @@ class AnswerEvaluator:
                 prompt.format(missing_text="• All 4 questions / جميع الأسئلة الأربعة")
             )
 
-        # 4. Question-by-Question Coverage Heuristic:
-        has_nationality = any(kw in text_lower for kw in ["yes", "lebanese", "lebanon", "beirut", "lb", "am lebanese", "نعم", "اي", "يب", "أجل", "لبناني", "لبنانية", "لبنان", "بيروت", "no", "not lebanese", "from", "country", "syrian", "iraqi", "egyptian", "jordanian", "palestinian", "iranian", "سوري", "عراقي", "مصري", "أردني", "فلسطيني", "إيراني", "إيرانية", "سورية", "مصرية", "بلد", "جنسية", "من", "سعود", "مغرب", "جزائر", "تونس", "كويت", "قطر", "امارات", "عمان", "يمن", "سودان", "صومال", "ليبيا"])
+        # 3. Question-by-Question Coverage Heuristic:
+        has_nationality = any(kw in text_lower for kw in ["lebanese", "lebanon", "beirut", "lb", "am lebanese", "لبناني", "لبنانية", "لبنان", "بيروت", "not lebanese", "from", "country", "syrian", "iraqi", "egyptian", "jordanian", "palestinian", "iranian", "سوري", "عراقي", "مصري", "أردني", "فلسطيني", "إيراني", "إيرانية", "سورية", "مصرية", "بلد", "جنسية", "من", "سعود", "مغرب", "جزائر", "تونس", "كويت", "قطر", "امارات", "عمان", "يمن", "سودان", "صومال", "ليبيا"])
         
-        # Check for numeric age >= 18 or text age keywords
+        # Check for numeric age >= 18 or text age keywords (including "yes"/"نعم" as valid age confirmations)
         has_numeric_age = False
         for num_str in re.findall(r'\b\d{2}\b', user_text):
             if int(num_str) >= 18:
                 has_numeric_age = True
                 break
-        has_age = has_numeric_age or any(kw in text_lower for kw in ["years", "old", "over 18", "عشرين", "سنة", "عمري", "عام", "عمر", "فوق"])
+        has_age = has_numeric_age or any(kw in text_lower for kw in ["yes", "نعم", "اي", "يب", "أجل", "no", "years", "old", "over 18", "عشرين", "سنة", "عمري", "عام", "عمر", "فوق"])
         
-        has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub", "ريدت", "قوقل", "جوجل", "صديق", "صاحب", "صدق", "اصدقاء", "صاحبي", "بحث", "صدفة", "تيك توك", "تليجرام", "تيليغرام", "رابط", "chatgpt", "chat gpt", "شات", "شات جي بي تي", "ai", "ذكاء", "اصطناعي"])
-        has_reason = any(kw in text_lower for kw in ["community", "people", "talk", "chat", "discuss", "news", "join", "friends", "connect", "know", "live", "اتحدث", "شات", "تعارف", "دردشة", "انضمام", "انضم", "استمتع", "سبب", "تفاعل", "فضول", "شوف", "اشوف", "حابب", "صداق", "لعب", "العب", "وقت", "استفاد"])
+        has_source = any(kw in text_lower for kw in ["reddit", "google", "friend", "r/lebanon", "server", "telegram", "search", "found", "sub", "ريدت", "قوقل", "جوجل", "صديق", "صاحب", "صدق", "اصدقاء", "صاحبي", "بحث", "صدفة", "تيك توك", "تليجرام", "تيليغرام", "رابط", "chatgpt", "chat gpt", "شات جي بي تي", "ai", "ذكاء", "اصطناعي", "من النت", "نت"])
+        has_reason = any(kw in text_lower for kw in ["community", "people", "talk", "chat", "discuss", "news", "join", "friends", "connect", "know", "live", "اتحدث", "تعارف", "دردشة", "انضمام", "انضم", "استمتع", "سبب", "تفاعل", "فضول", "شوف", "اشوف", "حابب", "صداق", "لعب", "العب", "وقت", "استفاد"])
 
         missing = []
         if not has_nationality:

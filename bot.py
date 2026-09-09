@@ -13,10 +13,10 @@ from telegram.ext import (
     filters,
 )
 from telegram.request import HTTPXRequest
-import httpx
+
 
 import database
-from config import BOT_TOKEN, HEALTHCHECK_URL
+from config import BOT_TOKEN
 from handlers import (
     on_admin_decline_command,
     on_admin_help_command,
