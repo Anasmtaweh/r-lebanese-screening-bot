@@ -940,9 +940,20 @@ async def on_admin_stats_command(update: Update, context: ContextTypes.DEFAULT_T
         f"• Total Join Requests: {stats['total_requests']}\n"
         f"• Passed Screening: {stats['passed']}\n"
         f"• Accepted into Group: {stats['accepted']}\n"
+        f"• Currently In Screening: {stats['active']}\n\n"
+        "🛑 **Declines & Dismissals**\n"
         f"• Declined (Junk Reply): {stats['declined_junk']}\n"
         f"• Declined (48h Timeout): {stats['timeout']}\n"
-        f"• Currently In Screening: {stats['active']}"
+        f"• Declined (No DM possible): {stats['declined_no_dm']}\n"
+        f"• Dismissed by Admin: {stats['dismissed_admin']}\n"
+        f"• Cancelled Request: {stats['user_cancelled']}\n\n"
+        "🥾 **Group Removals & Kicks**\n"
+        f"• Left Group Voluntarily: {stats['left_group']}\n"
+        f"• Manually Kicked/Banned: {stats['manually_kicked']}\n"
+        f"• Kicked (Probation Timeout): {stats['kicked_probation']}\n"
+        f"• Kicked (Blocked Bot Probation): {stats['kicked_probation_blocked']}\n\n"
+        "🛡️ **Probation Stats**\n"
+        f"• Probation Cleared: {stats['probation_cleared']}"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 

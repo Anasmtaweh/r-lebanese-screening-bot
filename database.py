@@ -430,17 +430,22 @@ def get_screening_stats() -> Dict[str, int]:
             cur.execute("SELECT COUNT(DISTINCT user_id) as c FROM screening_sessions")
             total_requests = cur.fetchone()["c"] or 0
 
-            cur.execute("SELECT COUNT(*) as c FROM user_history WHERE event_type = 'PASSED_SCREENING'")
-            passed = cur.fetchone()["c"] or 0
+            def get_event_count(event: str) -> int:
+                cur.execute("SELECT COUNT(*) as c FROM user_history WHERE event_type = %s", (event,))
+                return cur.fetchone()["c"] or 0
 
-            cur.execute("SELECT COUNT(*) as c FROM user_history WHERE event_type = 'DECLINED_JUNK'")
-            declined_junk = cur.fetchone()["c"] or 0
-
-            cur.execute("SELECT COUNT(*) as c FROM user_history WHERE event_type = 'DISMISSED_TIMEOUT'")
-            timeout = cur.fetchone()["c"] or 0
-
-            cur.execute("SELECT COUNT(*) as c FROM user_history WHERE event_type = 'APPROVED_JOINED'")
-            accepted = cur.fetchone()["c"] or 0
+            passed = get_event_count('PASSED_SCREENING')
+            declined_junk = get_event_count('DECLINED_JUNK')
+            timeout = get_event_count('DISMISSED_TIMEOUT')
+            accepted = get_event_count('APPROVED_JOINED')
+            left_group = get_event_count('LEFT_GROUP')
+            manually_kicked = get_event_count('MANUALLY_KICKED')
+            declined_no_dm = get_event_count('DECLINED_NO_DM')
+            user_cancelled = get_event_count('USER_CANCELLED')
+            kicked_probation = get_event_count('KICKED_PROBATION')
+            kicked_probation_blocked = get_event_count('KICKED_PROBATION_BLOCKED')
+            probation_cleared = get_event_count('PROBATION_CLEARED')
+            dismissed_admin = get_event_count('DISMISSED_ADMIN')
 
             cur.execute("SELECT COUNT(*) as c FROM screening_sessions WHERE status IN (%s, %s)", (STATUS_PENDING, STATUS_PARTIAL))
             active = cur.fetchone()["c"] or 0
@@ -452,6 +457,14 @@ def get_screening_stats() -> Dict[str, int]:
                 "timeout": timeout,
                 "accepted": accepted,
                 "active": active,
+                "left_group": left_group,
+                "manually_kicked": manually_kicked,
+                "declined_no_dm": declined_no_dm,
+                "user_cancelled": user_cancelled,
+                "kicked_probation": kicked_probation,
+                "kicked_probation_blocked": kicked_probation_blocked,
+                "probation_cleared": probation_cleared,
+                "dismissed_admin": dismissed_admin,
             }
 
 def get_recent_users_by_event(event_type: str, limit: int = 50) -> List[Dict[str, Any]]:
