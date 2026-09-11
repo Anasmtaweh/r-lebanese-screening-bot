@@ -823,6 +823,32 @@ async def on_admin_probation_blocked_command(update: Update, context: ContextTyp
     database.add_user_history(target_user_id, session["chat_id"] if session else 0, "PROBATION_BLOCKED_STARTED", "User blocked the bot — 24h probation set")
 
 
+async def on_admin_unprobation_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin command: /unprobation <user_id> — Manually clears probation status."""
+    if not update.message or not update.message.text:
+        return
+    if not _is_admin(update):
+        return
+    target_user_id = _extract_target_id(update, context)
+    if not target_user_id:
+        await update.message.reply_text("Usage: /unprobation <user_id> or reply to a bot message")
+        return
+
+    session = database.get_session(target_user_id)
+    if not session or session["status"] not in (STATUS_PROBATION, STATUS_PROBATION_BLOCKED):
+        await update.message.reply_text(f"User {target_user_id} is not currently on probation.")
+        return
+
+    chat_id = session["chat_id"]
+    database.update_session_status(target_user_id, STATUS_APPROVED)
+    _probation_cache.discard(target_user_id)
+    database.add_user_history(target_user_id, chat_id, "PROBATION_CLEARED", "Probation manually cleared by admin")
+    
+    user_str = _format_user_string(target_user_id)
+    await update.message.reply_text(f"✅ Probation manually removed for {user_str}.")
+    logger.info("Probation manually cleared for user %s", target_user_id)
+
+
 async def on_admin_reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Admin command: /reply <user_id> <message text>
@@ -970,8 +996,8 @@ async def on_admin_list_command(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     args = context.args or []
-    if len(args) < 1 or args[0].lower() not in ["passed", "junk", "timeout", "screening", "pending", "accepted"]:
-        await update.message.reply_text("Usage: /list <passed|junk|timeout|pending|accepted>")
+    if len(args) < 1 or args[0].lower() not in ["passed", "junk", "timeout", "screening", "pending", "accepted", "kicked", "banned", "left", "probation_cleared", "kicked_probation"]:
+        await update.message.reply_text("Usage: /list <passed|junk|timeout|pending|accepted|kicked|banned|left|probation_cleared|kicked_probation>")
         return
 
     category = args[0].lower()
@@ -982,7 +1008,12 @@ async def on_admin_list_command(update: Update, context: ContextTypes.DEFAULT_TY
             "passed": "PASSED_SCREENING",
             "junk": "DECLINED_JUNK",
             "timeout": "DISMISSED_TIMEOUT",
-            "accepted": "APPROVED_JOINED"
+            "accepted": "APPROVED_JOINED",
+            "kicked": "MANUALLY_KICKED",
+            "banned": "MANUALLY_KICKED",
+            "left": "LEFT_GROUP",
+            "probation_cleared": "PROBATION_CLEARED",
+            "kicked_probation": "KICKED_PROBATION"
         }
         event_type = event_map[category]
         users = database.get_recent_users_by_event(event_type, limit=20)
@@ -1048,7 +1079,8 @@ async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TY
         "**Manual Actions**\n"
         "• `/reply <user_id> <message>` - Send a custom DM to an applicant.\n"
         "   *Example:* `/reply 123456789 Please clarify your age.`\n"
-        "• `/decline <user_id>` - Silently decline an applicant and delete their DM history.\n\n"
+        "• `/decline <user_id>` - Silently decline an applicant and delete their DM history.\n"
+        "• `/unprobation <user_id>` - Manually remove probation for a user.\n\n"
         "*(Note: You can also approve/decline users natively via Telegram's group management menu!)*"
     )
     
