@@ -431,7 +431,7 @@ def get_screening_stats() -> Dict[str, int]:
             total_requests = cur.fetchone()["c"] or 0
 
             def get_event_count(event: str) -> int:
-                cur.execute("SELECT COUNT(*) as c FROM user_history WHERE event_type = %s", (event,))
+                cur.execute("SELECT COUNT(DISTINCT user_id) as c FROM user_history WHERE event_type = %s", (event,))
                 return cur.fetchone()["c"] or 0
 
             passed = get_event_count('PASSED_SCREENING')
