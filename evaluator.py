@@ -4,6 +4,7 @@ import re
 import asyncio
 from typing import Tuple, Optional
 from google import genai
+from google.genai import types
 from config import INCOMPLETE_PROMPT_EN, INCOMPLETE_PROMPT_AR
 
 # Result Constants
@@ -159,15 +160,15 @@ class AnswerEvaluator:
             "3. How did you find out about our server? (e.g. Telegram, Reddit, a friend, search)\n"
             "4. Why are you interested in joining?\n\n"
             "CRITICAL RULES:\n"
-            "1. JUNK vs INCOMPLETE: If the user did NOT genuinely answer ANY of the 4 screening questions (e.g. 'yes yes yes', 'ok hello', 'who you are', or spam), you MUST return JUNK!\n"
-            "2. ANTI-LENIENCY: Only return INCOMPLETE if they genuinely answered AT LEAST ONE question (e.g., 'Lebanese, 22') but missed others. If any of the 4 questions is missing, you MUST return INCOMPLETE and NOT SATISFACTORY.\n"
+            "1. JUNK vs INCOMPLETE: Single-word affirmative answers (e.g. 'yes', 'نعم', 'اي', 'أجل') or numbers (e.g. '22') ARE valid answers to Question 1 (nationality) or Question 2 (age). Do NOT classify these as JUNK! Only return JUNK if the user reply is completely non-responsive, gibberish (e.g. 'asdfgh'), off-topic spam ('buy crypto'), or insults ('who are you').\n"
+            "2. ANTI-LENIENCY: If the user genuinely answered AT LEAST ONE question (including 'yes'/'نعم' for Q1/Q2), you MUST return INCOMPLETE listing the missing questions (e.g., 'INCOMPLETE | 3, 4'). Do NOT return JUNK or SATISFACTORY.\n"
             "3. DIALECTS & SLANG: Accept answers in English, Arabic, or Lebanese Franco-Arabic dialect. Recognize modern AI tools like ChatGPT ('شات جي بتي') or internet search ('من النت') as valid sources for Q3. Recognize that insults or dismissals like 'انت مالك' (None of your business) do NOT answer Q4.\n"
             "4. HEBREW/ZIONIST: If the user writes in Hebrew script, mentions Israel as their country, or identifies as Zionist/Israeli, you MUST return UNSATISFACTORY immediately. This is an anti-Zionist community.\n\n"
             f"User Reply:\n\"\"\"{user_text}\"\"\"\n\n"
             "Reply with exactly ONE line:\n"
             "- SATISFACTORY (if all 4 questions are explicitly answered)\n"
             "- UNSATISFACTORY (if the user is under 18, writes in Hebrew, or identifies as Israeli/Zionist)\n"
-            "- JUNK (if 0 questions were answered, e.g. 'who you are', 'yes yes yes', 'ok hello', 'hello')\n"
+            "- JUNK (if 0 questions were answered, e.g. gibberish 'asdfgh', 'who are you', spam, insults)\n"
             "- INCOMPLETE | <missing_numbers> (if 1-3 questions were answered, list ONLY the missing numbers separated by commas, e.g., 'INCOMPLETE | 3, 4')"
         )
 
@@ -181,6 +182,10 @@ class AnswerEvaluator:
                 http_options={'proxy': 'http://proxy.server:3128'}
             )
             
+        config = types.GenerateContentConfig(
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+        )
+
         max_retries = 3
         resp = None
         last_exception = None
@@ -191,6 +196,7 @@ class AnswerEvaluator:
                 resp = await client.aio.models.generate_content(
                     model='gemini-3.6-flash',
                     contents=prompt,
+                    config=config,
                 )
                 break  # Success, exit the retry loop
             except Exception as e:
