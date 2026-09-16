@@ -447,7 +447,7 @@ def get_screening_stats() -> Dict[str, int]:
             probation_cleared = get_event_count('PROBATION_CLEARED')
             dismissed_admin = get_event_count('DISMISSED_ADMIN')
 
-            cur.execute("SELECT COUNT(*) as c FROM screening_sessions WHERE status IN (%s, %s)", (STATUS_PENDING, STATUS_PARTIAL))
+            cur.execute("SELECT COUNT(*) as c FROM screening_sessions WHERE status IN (%s, %s, %s)", (STATUS_PENDING, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY))
             active = cur.fetchone()["c"] or 0
 
             return {
@@ -493,18 +493,18 @@ def get_recent_users_by_event(event_type: str, limit: int = 50) -> List[Dict[str
 
 
 def get_pending_users(limit: int = 20) -> List[Dict[str, Any]]:
-    """Returns the most recent users whose sessions are PENDING or PARTIAL (Currently In Screening)."""
+    """Returns the most recent users whose sessions are PENDING, PARTIAL, or AWAITING_USER_REPLY (Currently In Screening)."""
     with _get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT user_id, updated_at as created_at, user_metadata_json
                 FROM screening_sessions
-                WHERE status IN (%s, %s)
+                WHERE status IN (%s, %s, %s)
                 ORDER BY updated_at DESC
                 LIMIT %s
                 """,
-                (STATUS_PENDING, STATUS_PARTIAL, limit,)
+                (STATUS_PENDING, STATUS_PARTIAL, STATUS_AWAITING_USER_REPLY, limit,)
             )
             rows = []
             for r in cur.fetchall():
