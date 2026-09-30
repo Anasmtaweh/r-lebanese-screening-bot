@@ -8,35 +8,35 @@ An autonomous, hardened Telegram screening and onboarding bot designed for the *
 
 ```mermaid
 flowchart TD
-    JoinReq["👤 User Requests to Join"] --> LangPrompt["🌐 Language Selection (EN / AR)"]
+    JoinReq["👤 User Requests to Join"] --> LangPrompt["🌐 Language Selection: EN / AR"]
     LangPrompt --> DMQuestions["📝 Bot Sends 4 Screening Questions in DM"]
     DMQuestions --> UserAnswers["💬 User Replies with Answers"]
     
-    UserAnswers --> PreFilter{"1. Pre-AI Security Gate<br>(Deterministic Regex & Keyword Filter)"}
+    UserAnswers --> PreFilter{"1. Pre-AI Security Gate"}
     
     %% Branch A: Flagged by Pre-Filter
-    PreFilter -->|❌ Flagged / Ineligible| FlaggedAdmin["🚨 Bypasses AI Completely<br>Forward Flagged Report to Admins"]
+    PreFilter -->|Flagged / Ineligible| FlaggedAdmin["🚨 Bypasses AI Completely<br>Forward Flagged Report to Admins"]
     FlaggedAdmin --> AdminDecision{"Human Admin Decision"}
 
     %% Branch B: Passed to AI Pipeline
     subgraph EvaluationPipeline ["Dual-AI Evaluation Pipeline"]
-        PreFilter -->|✅ Passed Gate| AI_Gemini["2. Google Gemini (Primary Classifier)"]
-        AI_Gemini -->|Success| Decision{Classification Result}
-        AI_Gemini -->|Quota Limit / 429| AI_Groq["3. Groq Llama 3.1 8B (Async Fallback)"]
+        PreFilter -->|Passed Gate| AI_Gemini["2. Google Gemini - Primary Classifier"]
+        AI_Gemini -->|Success| Decision{"Classification Result"}
+        AI_Gemini -->|Quota Limit / 429| AI_Groq["3. Groq Llama 3.1 8B - Async Fallback"]
         AI_Groq -->|Success| Decision
         AI_Groq -->|Provider Outage| RuleBased["4. Deterministic Heuristic Fallback"]
         RuleBased --> Decision
     end
 
-    Decision -->|INCOMPLETE (Attempt 1)| FollowUp["🔁 Silent Follow-Up (Ask for missing questions)"]
+    Decision -->|Incomplete - Attempt 1| FollowUp["🔁 Silent Follow-Up - Ask for missing answers"]
     FollowUp --> UserAnswers
-    Decision -->|SATISFACTORY / Attempt 2| AdminReview["📋 Forward Full Transcript to Admin Channel"]
+    Decision -->|Satisfactory or Attempt 2| AdminReview["📋 Forward Full Transcript to Admin Channel"]
     Decision -->|Under 18 Detected| Under18Review["⚠️ Flag as Under-18 for Admin Review"]
     
     AdminReview --> AdminDecision
     Under18Review --> AdminDecision
     AdminDecision -->|Approve| Accepted["✅ Approve User into Community"]
-    AdminDecision -->|Decline| Declined["❌ Decline & Bulk Delete DMs"]
+    AdminDecision -->|Decline| Declined["❌ Decline and Bulk Delete DMs"]
 ```
 
 ---
