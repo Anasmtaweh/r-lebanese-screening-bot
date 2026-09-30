@@ -12,22 +12,29 @@ flowchart TD
     LangPrompt --> DMQuestions["📝 Bot Sends 4 Screening Questions in DM"]
     DMQuestions --> UserAnswers["💬 User Replies with Answers"]
     
+    UserAnswers --> PreFilter{"1. Pre-AI Security Gate<br>(Deterministic Regex & Keyword Filter)"}
+    
+    %% Branch A: Flagged by Pre-Filter
+    PreFilter -->|❌ Flagged / Ineligible| FlaggedAdmin["🚨 Bypasses AI Completely<br>Forward Flagged Report to Admins"]
+    FlaggedAdmin --> AdminDecision{"Human Admin Decision"}
+
+    %% Branch B: Passed to AI Pipeline
     subgraph EvaluationPipeline ["Dual-AI Evaluation Pipeline"]
-        UserAnswers --> AI_Gemini["1. Google Gemini (Primary Classifier)"]
-        AI_Gemini -->|Success| Decision{Classification}
-        AI_Gemini -->|Quota Limit / 429| AI_Groq["2. Groq Llama 3.1 8B (Async Fallback)"]
+        PreFilter -->|✅ Passed Gate| AI_Gemini["2. Google Gemini (Primary Classifier)"]
+        AI_Gemini -->|Success| Decision{Classification Result}
+        AI_Gemini -->|Quota Limit / 429| AI_Groq["3. Groq Llama 3.1 8B (Async Fallback)"]
         AI_Groq -->|Success| Decision
-        AI_Groq -->|Provider Outage| RuleBased["3. Deterministic Heuristic Fallback"]
+        AI_Groq -->|Provider Outage| RuleBased["4. Deterministic Heuristic Fallback"]
         RuleBased --> Decision
     end
 
     Decision -->|INCOMPLETE (Attempt 1)| FollowUp["🔁 Silent Follow-Up (Ask for missing questions)"]
     FollowUp --> UserAnswers
-    Decision -->|SATISFACTORY / Attempt 2| AdminReview["👨‍⚖️ Forward Transcript to Admin Channel"]
-    Decision -->|Under 18 Flagged| FlaggedReview["⚠️ Flag for Manual Admin Review"]
+    Decision -->|SATISFACTORY / Attempt 2| AdminReview["📋 Forward Full Transcript to Admin Channel"]
+    Decision -->|Under 18 Detected| Under18Review["⚠️ Flag as Under-18 for Admin Review"]
     
-    AdminReview --> AdminDecision{"Human Admin Decision"}
-    FlaggedReview --> AdminDecision
+    AdminReview --> AdminDecision
+    Under18Review --> AdminDecision
     AdminDecision -->|Approve| Accepted["✅ Approve User into Community"]
     AdminDecision -->|Decline| Declined["❌ Decline & Bulk Delete DMs"]
 ```
