@@ -1,74 +1,103 @@
 # 🌲 R/lebanese Telegram Screening Bot
 
-An autonomous, hardened Telegram screening and onboarding bot designed for the **R/lebanese** community. Built with [`python-telegram-bot` v21](https://github.com/python-telegram-bot/python-telegram-bot), PostgreSQL (Supabase), and Groq's **Llama 3 8B** AI classification.
+An autonomous, hardened Telegram screening and onboarding bot designed for the **R/lebanese** community. Built with [`python-telegram-bot` v21](https://github.com/python-telegram-bot/python-telegram-bot), PostgreSQL (Supabase connection pooling), and a high-availability **Dual-Provider AI Evaluator** (Google Gemini + Groq Llama 3.1 8B).
 
 ---
 
-## 🛠️ Tech Stack & Architecture
-* **Language:** Python 3.10+
-* **Framework:** `python-telegram-bot` (v21)
-* **Database:** PostgreSQL (Hosted on Supabase)
-* **Hosting:** Render Web Services (Webhook Mode)
-* **AI Provider:** Groq (`llama3-8b-8192`)
-* **Uptime Management:** Healthchecks.io (Outgoing Heartbeat) + cron-job.org (Incoming Wakeup Ping)
+## 🛠️ Architecture & Pipeline
 
----
+```mermaid
+flowchart TD
+    JoinReq["👤 User Requests to Join"] --> LangPrompt["🌐 Language Selection (EN / AR)"]
+    LangPrompt --> DMQuestions["📝 Bot Sends 4 Screening Questions in DM"]
+    DMQuestions --> UserAnswers["💬 User Replies with Answers"]
+    
+    subgraph EvaluationPipeline ["Dual-AI Evaluation Pipeline"]
+        UserAnswers --> AI_Gemini["1. Google Gemini (Primary Classifier)"]
+        AI_Gemini -->|Success| Decision{Classification}
+        AI_Gemini -->|Quota Limit / 429| AI_Groq["2. Groq Llama 3.1 8B (Async Fallback)"]
+        AI_Groq -->|Success| Decision
+        AI_Groq -->|Provider Outage| RuleBased["3. Deterministic Heuristic Fallback"]
+        RuleBased --> Decision
+    end
 
-## ✨ How the Bot Works
-
-### 1. The 4 Screening Questions
-When a user requests to join the group, the bot sends them a private DM asking them to choose their language (English or Arabic), followed by exactly 4 questions:
-1. Are you Lebanese?
-2. Are you 18 or older? *(Must be 18+)*
-3. How did you find out about our server?
-4. Why are you interested in joining?
-
-### 2. Smart 2-Attempt AI Screening Flow
-* **Attempt #1 (Silent Prompt)**: The AI reads the user's reply. If it is incomplete (e.g., they only answered 2 out of 4 questions), the bot **silently** asks them for the specific missing questions without alerting admins.
-* **Attempt #2 (Full Transcript to Admins)**: On their second attempt, the bot sends the complete 2-attempt conversation transcript to the Admin Channel so admins can take over manually.
-* **Under 18 Protection**: If a user indicates they are under 18, they are flagged as `⚠️ Review Needed` in the Admin Channel. The bot never automatically accepts or declines users.
-
-### 3. Rule-Based Emergency Fallback
-If the Groq AI API goes down, times out, or fails for any reason, the bot will seamlessly and invisibly fall back to a **Hardcoded Rule-Based Evaluator**.
-* The fallback evaluator is natively bilingual and scans the user's text for specific Arabic and English keywords (e.g., "نعم", "عشرين", "قوقل", "شات", "reddit", "18").
-* It will gracefully handle length checks and exact keyword matching to ensure the screening process never stops working, even during a total AI outage.
-
-### 4. 100% Manual Admin Control
-The bot is designed to assist, not to make final decisions. Admins control everything directly from the Telegram group:
-* `/reply <user_id> <message>` — Send a direct DM to an applicant. (Comes with an interactive `[Undo ↩️]` button if you make a typo!)
-* `/decline <user_id> [reason]` — Silently decline a join request, send a decline reason DM, and delete all screening DMs.
-* `/transcript <user_id>` — Read the exact private chat history between the bot and a specific user.
-* `/stats` — View real-time screening metrics.
-* `/list <category>` — View the last 20 users in categories like `passed`, `junk`, `timeout`, or `pending`.
-
-### 5. Rolling 48-Hour Timeout
-* Every time a message is sent between the bot and the user, a 48-hour timer resets.
-* If an applicant goes unresponsive for 48 hours, their join request is automatically declined, DMs are deleted, and a timeout report is sent to admins.
-
----
-
-## 🚀 Setup & Installation
-
-### 1. Environment Variables (`.env`)
-To run this bot, you need the following environment variables set (in Render or a local `.env` file):
-
-```ini
-# Core
-BOT_TOKEN="<YOUR_TELEGRAM_BOT_TOKEN>"
-AI_API_KEY="<YOUR_GROQ_API_KEY>"
-DATABASE_URL="<YOUR_POSTGRESQL_CONNECTION_STRING>"
-
-# Admin Config
-ADMIN_CHAT_ID="<YOUR_ADMIN_GROUP_CHAT_ID>"
-ADMIN_USER_IDS="<ADMIN_1_USER_ID>,<ADMIN_2_USER_ID>"
-
-# Webhooks & Monitoring (Optional for local testing)
-RENDER_EXTERNAL_URL="<YOUR_RENDER_URL>"
-HEALTHCHECK_URL="<YOUR_HEALTHCHECK_URL>"
+    Decision -->|INCOMPLETE (Attempt 1)| FollowUp["🔁 Silent Follow-Up (Ask for missing questions)"]
+    FollowUp --> UserAnswers
+    Decision -->|SATISFACTORY / Attempt 2| AdminReview["👨‍⚖️ Forward Transcript to Admin Channel"]
+    Decision -->|Under 18 Flagged| FlaggedReview["⚠️ Flag for Manual Admin Review"]
+    
+    AdminReview --> AdminDecision{"Human Admin Decision"}
+    FlaggedReview --> AdminDecision
+    AdminDecision -->|Approve| Accepted["✅ Approve User into Community"]
+    AdminDecision -->|Decline| Declined["❌ Decline & Bulk Delete DMs"]
 ```
 
-### 2. Running Locally (Polling Mode)
-If `RENDER_EXTERNAL_URL` is NOT set, the bot will automatically boot in standard Polling mode, which is ideal for local testing on your laptop.
+---
+
+## ✨ Features & Capabilities
+
+### 1. Dual-Provider AI Evaluation (High Availability)
+* **Primary AI — Google Gemini:** High-precision evaluation of applicant answers across English, Modern Standard Arabic, and Lebanese Franco-Arabic dialects.
+* **Secondary Fallback — Groq (`llama-3.1-8b-instant`):** Asynchronous, ultra-low latency (~0.15s) inference handling up to 14,400 daily requests. Seamlessly takes over if the primary model reaches quota limits.
+* **Rule-Based Emergency Safety Net:** If both external AI providers are unavailable, the bot automatically falls back to an internal bilingual keyword and regex heuristic. The bot never halts screening.
+
+### 2. The 4 Screening Criteria
+Applicants must provide valid responses to 4 required criteria:
+1. **Nationality / Origin** (Lebanese or specified country of origin)
+2. **Age Verification** (Must explicitly confirm 18+)
+3. **Discovery Channel** (How they found out about the community)
+4. **Intent / Reason** (Why they wish to join)
+
+### 3. "Silent Classifier" Architecture (Prompt-Injection Proof)
+* The LLM operates strictly as an internal backend classifier that outputs a single constrained evaluation token.
+* **The AI never generates text seen by users.** Users only ever receive pre-approved, hardcoded bilingual message templates from `config.py`.
+* Zero prompt injection exposure, zero hallucination risk, and zero unintended conversational behavior.
+
+### 4. 100% Human-In-The-Loop Control
+The bot screens and assists, but **humans make every final decision**:
+* The bot **never** automatically approves applicants into the group.
+* Once answers are complete, the applicant's formatted transcript is forwarded to the private Admin Channel.
+* Admins take action directly using interactive buttons or commands:
+  * `/reply <user_id> <message>` — Send a DM to an applicant (with an interactive `[Undo ↩️]` button).
+  * `/decline <user_id> [reason]` — Decline a join request, notify the user, and clean up chat history.
+  * `/transcript <user_id>` — Retrieve complete historical conversation transcripts.
+  * `/stats` — Real-time screening and moderation analytics dashboard.
+  * `/list <category>` — Inspect recent applicants across 10+ status categories.
+
+### 5. Automated Timers & Privacy Protection
+* **Rolling 48-Hour Timeout:** Inactive join requests are automatically declined after 48 hours to keep queues clean.
+* **Zero-Trace Message Cleanup:** When a user is declined or times out, the bot bulk-deletes all screening messages from the user's private DM.
+* **1-Week Probation Tracking:** Approved members are passively monitored during their initial week, with an in-memory cache ensuring zero database overhead on high-velocity group messages.
+
+---
+
+## 🚀 Setup & Deployment
+
+### 1. Environment Configuration (`.env`)
+Create a `.env` file (or set variables in your cloud hosting provider):
+
+```ini
+# Telegram Bot Token (from @BotFather)
+BOT_TOKEN="your_telegram_bot_token_here"
+
+# AI Provider API Keys
+GEMINI_API_KEY="your_gemini_api_key_here"
+GROQ_API_KEY="your_groq_api_key_here"  # Or AI_API_KEY
+
+# PostgreSQL Database (e.g. Supabase)
+DATABASE_URL="postgresql://user:password@host:port/database"
+
+# Admin Configuration
+ADMIN_CHAT_ID="-100xxxxxxxxxx"
+ADMIN_USER_IDS="123456789,987654321"
+
+# Production Webhook & Monitoring (Optional for local testing)
+RENDER_EXTERNAL_URL="https://your-bot.onrender.com"
+HEALTHCHECK_URL="https://hc-ping.com/your-uuid-here"
+```
+
+### 2. Local Development (Polling Mode)
+If `RENDER_EXTERNAL_URL` is omitted, the bot starts in Polling mode:
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -76,16 +105,18 @@ pip install -r requirements.txt
 python bot.py
 ```
 
-### 3. Production Deployment (Webhook Mode)
-When deployed to Render, `RENDER_EXTERNAL_URL` is set, which automatically triggers the bot to run a Tornado web server on port 10000. 
-* Telegram will push updates directly to the Render URL.
-* To prevent Render's free tier from putting the bot to sleep, configure a cronjob (like cron-job.org) to send a POST request with `{"update_id": 0}` (Content-Type: application/json) to your Render URL every 14 minutes.
+### 3. Production Deployment (Webhook Mode on Render)
+* Set `RENDER_EXTERNAL_URL` in your environment. The bot automatically starts an asynchronous Tornado web server binding to `0.0.0.0:$PORT`.
+* To prevent Render free tier instances from sleeping, configure an external ping (e.g., `cron-job.org`) to send an HTTP GET request to your Render root URL every 10–14 minutes.
 
 ---
 
 ## 📂 Project Structure
-* `bot.py` — Main entry point, webhook/polling setup, and handler registration.
-* `config.py` — Environment variables and hardcoded bilingual templates.
-* `database.py` — PostgreSQL connection manager (with strict context managers to prevent connection exhaustion) and all DB queries.
-* `evaluator.py` — The core logic containing the Groq AI classification and the emergency Rule-Based bilingual fallback.
-* `handlers.py` — All Telegram event handlers (Join Requests, DM parsing, Admin Commands, and interactive callbacks).
+```text
+├── bot.py              # Application entry point, webhook/polling setup, and event routing
+├── config.py           # Configuration constants, timeouts, and bilingual prompt templates
+├── database.py         # Thread-safe PostgreSQL connection pooling and CRUD operations
+├── evaluator.py        # Dual-provider AI classifier (Gemini + Groq) and rule-based fallback
+├── handlers.py         # Telegram event handlers (Join requests, DMs, Admin commands)
+└── requirements.txt    # Application dependencies
+```

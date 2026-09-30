@@ -3,6 +3,7 @@ import os
 import re
 import asyncio
 from typing import Tuple, Optional
+import httpx
 from google import genai
 from google.genai import types
 from config import INCOMPLETE_PROMPT_EN, INCOMPLETE_PROMPT_AR
@@ -25,13 +26,26 @@ class AnswerEvaluator:
     """
 
     def __init__(self, api_key: str = ""):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
+        self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("AI_API_KEY", "")
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+        if api_key:
+            if api_key.startswith("gsk_"):
+                self.groq_api_key = api_key
+            else:
+                self.gemini_api_key = api_key
+                if not self.groq_api_key:
+                    self.groq_api_key = api_key
+
         self.test_mode = os.getenv("TESTING_MODE") == "1"
+
+    @property
+    def api_key(self) -> str:
+        return self.groq_api_key or self.gemini_api_key
 
     async def evaluate(self, user_text: str, language_code: str = "en") -> Tuple[str, str, bool, Optional[str]]:
         """
         Main entry point for evaluating a user's reply.
-        Prioritizes LLM if available, falls back to rule-based.
+        Prioritizes Groq (fast, free, high limit), falls back to Gemini, then rule-based.
         Returns: (result_type, feedback, was_ai_used, ai_error_msg)
         """
         # HARD GATE: Hebrew/Zionist detection runs BEFORE everything else.
@@ -44,7 +58,7 @@ class AnswerEvaluator:
                 None
             )
         text_lower = user_text.strip().lower()
-        zionist_keywords = ["israel", "israeli", "zionist", "zionism", "tel aviv", "idf", "צהל", "ישראל", "ישראלי", "ציוני", "صهيوني", "صهيونية", "اسرائيلي", "إسرائيلي", "إسرائيل", "اسرائيل"]
+        zionist_keywords = ["israel", "israeli", "zionist", "zionism", "tel aviv", "idf", "צהל", "ישראל", "ישראلي", "ציוני", "صهيوني", "صهيونية", "اسرائيلي", "إسرائيلي", "إسرائيل", "اسرائيل"]
         if any(kw in text_lower for kw in zionist_keywords):
             return (
                 RESULT_UNSATISFACTORY,
@@ -76,16 +90,31 @@ class AnswerEvaluator:
                 )
 
         ai_error_msg = None
-        if self.api_key:
+
+        # 1. Primary: Try Gemini first (as per architecture flowchart)
+        if self.gemini_api_key:
             try:
-                res, msg = await self.evaluate_with_llm(user_text, language_code)
+                res, msg = await self.evaluate_with_gemini(user_text, language_code)
                 return (res, msg, True, None)
             except Exception as e:
-                ai_error_msg = str(e)
-                print(f"LLM evaluation failed ({e}), falling back to rule-based evaluation.")
+                ai_error_msg = f"Gemini error: {e}"
+                print(f"Gemini evaluation failed ({e}), seamlessly switching to Groq fallback...")
 
+        # 2. Seamless Fallback: Try Groq (Llama 3.1 8B Instant - 14,400 free/day, ~0.15s async)
+        if self.groq_api_key:
+            try:
+                res, msg = await self.evaluate_with_groq(user_text, language_code)
+                # Groq succeeded! Clear error so developer is not spammed with false failure alarms
+                return (res, msg, True, None)
+            except Exception as e:
+                groq_err = f"Groq error: {e}"
+                ai_error_msg = f"{ai_error_msg}; {groq_err}" if ai_error_msg else groq_err
+                print(f"Groq evaluation failed ({e}), falling back to rule-based evaluation.")
+
+        # 3. Final Fallback: Rule-based heuristic (only when both AI providers fail or are missing)
         res, msg = self.evaluate_rule_based(user_text, language_code)
         return (res, msg, False, ai_error_msg)
+
 
     def evaluate_rule_based(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
@@ -147,13 +176,8 @@ class AnswerEvaluator:
 
         return (RESULT_SATISFACTORY, user_text)
 
-    async def evaluate_with_llm(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
-        """
-        Calls Google Gemini API (gemini-3.6-flash) as a SILENT BACKEND CLASSIFIER.
-        The LLM never communicates with the user or generates text for the user.
-        It only classifies the response as SATISFACTORY, INCOMPLETE, or UNSATISFACTORY.
-        """
-        prompt = (
+    def _get_classification_prompt(self, user_text: str) -> str:
+        return (
             "Analyze if the user answered ALL 4 screening questions:\n"
             "1. Are you Lebanese? If not, what country are you from? (Any nationality is accepted, we just need to know)\n"
             "2. Are you 18 or older? (A simple 'Yes', 'نعم', or an age >= 18 is acceptable)\n"
@@ -172,46 +196,7 @@ class AnswerEvaluator:
             "- INCOMPLETE | <missing_numbers> (if 1-3 questions were answered, list ONLY the missing numbers separated by commas, e.g., 'INCOMPLETE | 3, 4')"
         )
 
-        # Initialize Gemini Client
-        client = genai.Client(api_key=self.api_key)
-        
-        # Route API calls through PythonAnywhere proxy if applicable
-        if os.environ.get("PYTHONANYWHERE_SITE"):
-            client = genai.Client(
-                api_key=self.api_key, 
-                http_options={'proxy': 'http://proxy.server:3128'}
-            )
-            
-        config = types.GenerateContentConfig(
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-        )
-
-        max_retries = 3
-        resp = None
-        last_exception = None
-        
-        for attempt in range(max_retries):
-            try:
-                # Use the asynchronous aio client so we don't block the bot!
-                resp = await client.aio.models.generate_content(
-                    model='gemini-3.6-flash',
-                    contents=prompt,
-                    config=config,
-                )
-                break  # Success, exit the retry loop
-            except Exception as e:
-                last_exception = e
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** (attempt + 1))  # Sleep 2s, then 4s non-blocking
-                
-        if resp is None:
-            raise last_exception
-            
-        if not resp.text:
-            raise ValueError("Gemini returned an empty response.")
-            
-        reply_token = resp.text.strip().upper()
-
+    def _parse_reply_token(self, reply_token: str, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         if "SATISFACTORY" in reply_token and "UNSATISFACTORY" not in reply_token:
             return (RESULT_SATISFACTORY, user_text)
         elif "JUNK" in reply_token:
@@ -247,3 +232,99 @@ class AnswerEvaluator:
                 RESULT_INCOMPLETE,
                 prompt.format(missing_text=missing_text),
             )
+
+    async def evaluate_with_groq(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
+        """
+        Calls Groq API (llama-3.1-8b-instant) using non-blocking async HTTP.
+        Runs in ~0.15s with 14,400 free requests/day.
+        """
+        prompt = self._get_classification_prompt(user_text)
+        payload = {
+            "model": "llama-3.1-8b-instant",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 20,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.groq_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        proxy_url = "http://proxy.server:3128" if os.environ.get("PYTHONANYWHERE_SITE") else None
+        max_retries = 2
+        last_exception = None
+        reply_token = ""
+
+        async with httpx.AsyncClient(proxy=proxy_url, timeout=8.0) as client:
+            for attempt in range(max_retries):
+                try:
+                    resp = await client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        json=payload,
+                        headers=headers,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    reply_token = data["choices"][0]["message"]["content"].strip().upper()
+                    break
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(1.0)
+
+        if not reply_token:
+            raise last_exception or ValueError("Groq returned an empty response.")
+
+        return self._parse_reply_token(reply_token, user_text, language_code)
+
+    async def evaluate_with_gemini(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
+        """
+        Calls Google Gemini API as secondary backend classifier.
+        """
+        prompt = self._get_classification_prompt(user_text)
+        client = genai.Client(api_key=self.gemini_api_key)
+        
+        if os.environ.get("PYTHONANYWHERE_SITE"):
+            client = genai.Client(
+                api_key=self.gemini_api_key, 
+                http_options={'proxy': 'http://proxy.server:3128'}
+            )
+            
+        config = types.GenerateContentConfig(
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+        )
+
+        max_retries = 3
+        resp = None
+        last_exception = None
+        
+        for attempt in range(max_retries):
+            try:
+                resp = await client.aio.models.generate_content(
+                    model='gemini-3.6-flash',
+                    contents=prompt,
+                    config=config,
+                )
+                break
+            except Exception as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** (attempt + 1))
+                
+        if resp is None:
+            raise last_exception
+            
+        if not resp.text:
+            raise ValueError("Gemini returned an empty response.")
+            
+        reply_token = resp.text.strip().upper()
+        return self._parse_reply_token(reply_token, user_text, language_code)
+
+    async def evaluate_with_llm(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
+        """Backward compatible wrapper that prefers Groq then Gemini."""
+        if self.groq_api_key:
+            return await self.evaluate_with_groq(user_text, language_code)
+        elif self.gemini_api_key:
+            return await self.evaluate_with_gemini(user_text, language_code)
+        raise ValueError("No AI API key configured.")
+

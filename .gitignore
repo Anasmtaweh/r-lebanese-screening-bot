@@ -2,6 +2,10 @@
 .env
 *.key
 *.pem
+# Logs
+*.log
+screening_bot.log
+
 # Database files
 *.db
 *.sqlite
