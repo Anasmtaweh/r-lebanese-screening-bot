@@ -98,9 +98,8 @@ DATABASE_URL="postgresql://user:password@host:port/database"
 ADMIN_CHAT_ID="-100xxxxxxxxxx"
 ADMIN_USER_IDS="123456789,987654321"
 
-# Production Webhook & Monitoring (Optional for local testing)
+# Production Webhook (Optional for local testing)
 RENDER_EXTERNAL_URL="https://your-bot.onrender.com"
-HEALTHCHECK_URL="https://hc-ping.com/your-uuid-here"
 ```
 
 ### 2. Local Development (Polling Mode)
