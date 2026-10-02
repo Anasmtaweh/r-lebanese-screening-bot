@@ -122,7 +122,7 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
                     
                     # Pick best available model
                     target_model = None
-                    for pref in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile", "gemma2-9b-it"]:
+                    for pref in ["qwen/qwen3.8-27b", "openai/gpt-oss-20b", "allam-2-7b", "openai/gpt-oss-120b"]:
                         if pref in chat_models:
                             target_model = pref
                             break
@@ -287,7 +287,7 @@ async def on_admin_groq_models_command(update: Update, context: ContextTypes.DEF
                 f"{chat_list_formatted}\n\n"
                 f"🎙️ <b>Audio / Safety / Special:</b>\n"
                 f"{other_list_formatted}\n\n"
-                f"💡 <i>Tip: The bot uses <code>openai/gpt-oss-120b</code> as its Groq backup model.</i>"
+                f"💡 <i>Tip: The bot uses <code>qwen/qwen3.8-27b</code> as its Groq backup model.</i>"
             )
 
             try:
