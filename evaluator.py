@@ -268,10 +268,10 @@ class AnswerEvaluator:
         """
         prompt = self._get_classification_prompt(user_text)
         models = [
-            "llama-3.3-70b-versatile",
             "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "llama-3.3-70b-versatile",
             "gemma2-9b-it",
-            "mixtral-8x7b-32768",
         ]
         headers = {
             "Authorization": f"Bearer {self.groq_api_key.strip()}",
