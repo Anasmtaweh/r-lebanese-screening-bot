@@ -97,23 +97,79 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
     else:
         t0 = time.perf_counter()
         try:
-            res, feedback = await _evaluator.evaluate_with_groq(test_input)
-            latency = time.perf_counter() - t0
-            model_disp = html.escape(_evaluator.last_groq_model or "Groq")
-            res_disp = html.escape(str(res))
-            groq_result_text = (
-                f"🟢 <b>GROQ: ONLINE</b>\n"
-                f"• Latency: <code>{latency:.2f}s</code>\n"
-                f"• Output: <code>{res_disp}</code>\n"
-                f"• Model: <code>{model_disp}</code>"
-            )
+            import httpx
+            headers = {
+                "Authorization": f"Bearer {_evaluator.groq_api_key}",
+                "Content-Type": "application/json",
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Step 1: Check Key Status via /models
+                models_resp = await client.get("https://api.groq.com/openai/v1/models", headers=headers)
+                if models_resp.status_code == 401:
+                    groq_result_text = "🔴 <b>GROQ: KEY INVALID</b>\n• API Key was rejected (401 Unauthorized)."
+                elif models_resp.status_code == 403:
+                    groq_result_text = "🔴 <b>GROQ: ACCOUNT RESTRICTED</b>\n• API Key was forbidden (403 Forbidden)."
+                elif not models_resp.is_success:
+                    groq_result_text = f"🔴 <b>GROQ: HTTP {models_resp.status_code}</b>\n• <pre>{_sanitize_error(models_resp.text)}</pre>"
+                else:
+                    # Key is valid and active!
+                    available = [m["id"] for m in models_resp.json().get("data", [])]
+                    # Filter chat models (exclude whisper, guard, embeddings)
+                    chat_models = [
+                        m for m in available 
+                        if not any(k in m.lower() for k in ["whisper", "guard", "rerank", "embed"])
+                    ]
+                    
+                    # Pick best available model
+                    target_model = None
+                    for pref in ["llama-3.3-70b-versatile", "gemma2-9b-it", "mixtral-8x7b-32768"]:
+                        if pref in chat_models:
+                            target_model = pref
+                            break
+                    if not target_model and chat_models:
+                        target_model = chat_models[0]
+
+                    if not target_model:
+                        groq_result_text = "🟡 <b>GROQ: KEY ACTIVE</b>\n• No compatible chat models found in your account."
+                    else:
+                        # Step 2: Test Chat Completion
+                        payload = {
+                            "model": target_model,
+                            "messages": [{"role": "user", "content": _evaluator._get_classification_prompt(test_input)}],
+                            "temperature": 0.1,
+                            "max_tokens": 50,
+                        }
+                        chat_resp = await client.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers)
+                        latency = time.perf_counter() - t0
+                        if chat_resp.is_success:
+                            data = chat_resp.json()
+                            raw_reply = data["choices"][0]["message"]["content"].strip()
+                            token, _ = _evaluator._parse_reply_token(raw_reply, test_input)
+                            groq_result_text = (
+                                f"🟢 <b>GROQ: ONLINE</b>\n"
+                                f"• Key Status: <b>Active & Valid (NOT BANNED)</b>\n"
+                                f"• Latency: <code>{latency:.2f}s</code>\n"
+                                f"• Model: <code>{html.escape(target_model)}</code>\n"
+                                f"• Output: <code>{html.escape(token)}</code>"
+                            )
+                        else:
+                            try:
+                                err_msg = chat_resp.json().get("error", {}).get("message", chat_resp.text)
+                            except Exception:
+                                err_msg = chat_resp.text
+                            groq_result_text = (
+                                f"🟡 <b>GROQ: KEY ACTIVE (Call Error)</b>\n"
+                                f"• Key Status: <b>Valid & Authorized</b>\n"
+                                f"• Model Tried: <code>{html.escape(target_model)}</code>\n"
+                                f"• Error: <pre>{_sanitize_error(err_msg)}</pre>\n"
+                                f"• Active Models: <code>{html.escape(', '.join(chat_models[:4]))}</code>"
+                            )
         except Exception as e:
             latency = time.perf_counter() - t0
-            err_disp = _sanitize_error(str(e))
             groq_result_text = (
-                f"🔴 <b>GROQ: FAILED</b>\n"
+                f"🔴 <b>GROQ: EXCEPTION</b>\n"
                 f"• Latency: <code>{latency:.2f}s</code>\n"
-                f"• Error: <pre>{err_disp}</pre>"
+                f"• Error: <pre>{_sanitize_error(str(e))}</pre>"
             )
 
     # 2. Test Gemini
