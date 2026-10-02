@@ -99,7 +99,7 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
         try:
             import httpx
             headers = {
-                "Authorization": f"Bearer {_evaluator.groq_api_key}",
+                "Authorization": f"Bearer {_evaluator.groq_api_key.strip()}",
                 "Content-Type": "application/json",
             }
             async with httpx.AsyncClient(timeout=10.0) as client:

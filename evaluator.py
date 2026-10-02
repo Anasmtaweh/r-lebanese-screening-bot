@@ -247,7 +247,7 @@ class AnswerEvaluator:
             "llama-3.1-8b-instant"
         ]
         headers = {
-            "Authorization": f"Bearer {self.groq_api_key}",
+            "Authorization": f"Bearer {self.groq_api_key.strip()}",
             "Content-Type": "application/json",
         }
 
@@ -314,7 +314,7 @@ class AnswerEvaluator:
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
         )
 
-        models = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-3.6-flash']
+        models = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
         resp = None
         last_exception = None
         
