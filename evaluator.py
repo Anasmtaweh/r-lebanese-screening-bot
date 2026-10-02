@@ -93,26 +93,26 @@ class AnswerEvaluator:
 
         ai_error_msg = None
 
-        # 1. Primary: Try Groq first (blazing fast ~0.5s, 14,400 free requests/day, preserves Gemini quota)
+        # 1. Primary: Gemini — superior reasoning, Arabic/dialect comprehension, common-sense inference.
+        #    Free tier: 1,500 req/day. Bot uses ~3-10/day. Quota is NOT at risk.
+        if self.gemini_api_key:
+            try:
+                res, msg = await self.evaluate_with_gemini(user_text, language_code)
+                return (res, msg, True, None)
+            except Exception as e:
+                gemini_err = f"Gemini error: {e}"
+                ai_error_msg = gemini_err
+                print(f"Gemini evaluation failed ({e}), seamlessly falling back to Groq...")
+
+        # 2. Backup: Groq — only fires when Gemini is down. Fast but weaker reasoning.
         if self.groq_api_key:
             try:
                 res, msg = await self.evaluate_with_groq(user_text, language_code)
                 return (res, msg, True, None)
             except Exception as e:
                 groq_err = f"Groq error: {e}"
-                ai_error_msg = groq_err
-                print(f"Groq evaluation failed ({e}), seamlessly falling back to Gemini...")
-
-        # 2. Seamless Fallback: Try Gemini (only when Groq fails, protects Gemini rate limits)
-        if self.gemini_api_key:
-            try:
-                res, msg = await self.evaluate_with_gemini(user_text, language_code)
-                # Gemini succeeded! Clear error so developer is not spammed
-                return (res, msg, True, None)
-            except Exception as e:
-                gemini_err = f"Gemini error: {e}"
-                ai_error_msg = f"{ai_error_msg}; {gemini_err}" if ai_error_msg else gemini_err
-                print(f"Gemini evaluation failed ({e}), falling back to rule-based evaluation.")
+                ai_error_msg = f"{ai_error_msg}; {groq_err}" if ai_error_msg else groq_err
+                print(f"Groq evaluation failed ({e}), falling back to rule-based evaluation.")
 
         # 3. Final Fallback: Rule-based heuristic (only when both AI providers fail or are missing)
         res, msg = self.evaluate_rule_based(user_text, language_code)
@@ -344,10 +344,10 @@ class AnswerEvaluator:
         return self._parse_reply_token(reply_token, user_text, language_code)
 
     async def evaluate_with_llm(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
-        """Backward compatible wrapper that prefers Groq then Gemini."""
-        if self.groq_api_key:
-            return await self.evaluate_with_groq(user_text, language_code)
-        elif self.gemini_api_key:
+        """Backward compatible wrapper that prefers Gemini then Groq."""
+        if self.gemini_api_key:
             return await self.evaluate_with_gemini(user_text, language_code)
+        elif self.groq_api_key:
+            return await self.evaluate_with_groq(user_text, language_code)
         raise ValueError("No AI API key configured.")
 
