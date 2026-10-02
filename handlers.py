@@ -1085,6 +1085,7 @@ async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TY
         "   👉 `/list kicked_probation` (Users who failed probation and were kicked)\n\n"
         "• `/transcript <user_id>` - Read the exact private chat history between the bot and a specific user.\n\n"
         "• `/test_ai` - Test live connectivity & latency to Groq and Gemini from Render.\n\n"
+        "• `/groq_models` - View all active models available on your Groq API key.\n\n"
         "**Probation Management**\n\n"
         "• `/probation_en <user_id>` - Start a 1-week probation for a user (English warning).\n\n"
         "• `/probation_ar <user_id>` - Start a 1-week probation for a user (Arabic warning).\n\n"

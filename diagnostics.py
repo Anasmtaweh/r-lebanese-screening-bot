@@ -122,7 +122,7 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
                     
                     # Pick best available model
                     target_model = None
-                    for pref in ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "gemma2-9b-it", "mixtral-8x7b-32768"]:
+                    for pref in ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "gemma2-9b-it", "mixtral-8x7b-32768"]:
                         if pref in chat_models:
                             target_model = pref
                             break
@@ -145,12 +145,17 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
                             data = chat_resp.json()
                             raw_reply = data["choices"][0]["message"]["content"].strip()
                             token, _ = _evaluator._parse_reply_token(raw_reply, test_input)
+                            other_chat = [m for m in chat_models if m != target_model]
+                            other_str = ", ".join(other_chat[:5])
+                            if len(other_chat) > 5:
+                                other_str += f" (+{len(other_chat) - 5} more)"
                             groq_result_text = (
                                 f"🟢 <b>GROQ: ONLINE</b>\n"
                                 f"• Key Status: <b>Active & Valid (NOT BANNED)</b>\n"
                                 f"• Latency: <code>{latency:.2f}s</code>\n"
-                                f"• Model: <code>{html.escape(target_model)}</code>\n"
-                                f"• Output: <code>{html.escape(token)}</code> (Raw: <code>{html.escape(raw_reply[:35])}</code>)"
+                                f"• Tested Model: <code>{html.escape(target_model)}</code>\n"
+                                f"• Output: <code>{html.escape(token)}</code> (Raw: <code>{html.escape(raw_reply[:35])}</code>)\n"
+                                f"• Available Models: <code>{html.escape(other_str or 'None')}</code>"
                             )
                         else:
                             try:
@@ -209,3 +214,93 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
         logger.warning("HTML edit failed in /test_ai (%s), falling back to raw plain text.", e)
         plain_report = re.sub(r'<[^>]+>', '', report)
         await status_msg.edit_text(plain_report, parse_mode=None)
+
+
+async def on_admin_groq_models_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Admin command: /groq_models
+    Fetches the full, live catalog of AI models available under the configured Groq API key.
+    """
+    message = update.effective_message
+    if not message:
+        return
+
+    # Security Verification
+    if not _is_authorized(update):
+        return
+
+    user_id = update.effective_user.id
+    now = time.time()
+
+    # Rate Limiting Cooldown Gate (15s cooldown)
+    last_run = _last_run_timestamp.get(user_id, 0.0)
+    if (now - last_run) < 15.0:
+        remaining = int(15.0 - (now - last_run))
+        await message.reply_text(f"⏳ Please wait {remaining}s before checking Groq models again.")
+        return
+
+    _last_run_timestamp[user_id] = now
+    logger.info("Admin %s requested Groq models list.", user_id)
+
+    if not _evaluator.groq_api_key:
+        await message.reply_text("❌ No <code>GROQ_API_KEY</code> configured.", parse_mode="HTML")
+        return
+
+    status_msg = await message.reply_text("🔍 <b>Querying Groq API for available models...</b>", parse_mode="HTML")
+
+    try:
+        import httpx
+        headers = {
+            "Authorization": f"Bearer {_evaluator.groq_api_key.strip()}",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get("https://api.groq.com/openai/v1/models", headers=headers)
+            if resp.status_code == 401:
+                await status_msg.edit_text("🔴 <b>GROQ: 401 Unauthorized</b> (Invalid API Key)", parse_mode="HTML")
+                return
+            elif not resp.is_success:
+                await status_msg.edit_text(
+                    f"🔴 <b>GROQ: HTTP {resp.status_code}</b>\n<pre>{_sanitize_error(resp.text)}</pre>",
+                    parse_mode="HTML"
+                )
+                return
+
+            raw_models = resp.json().get("data", [])
+            model_ids = sorted([m["id"] for m in raw_models])
+
+            chat_models = []
+            audio_and_other_models = []
+
+            for mid in model_ids:
+                if any(k in mid.lower() for k in ["whisper", "guard", "rerank", "embed"]):
+                    audio_and_other_models.append(mid)
+                else:
+                    chat_models.append(mid)
+
+            chat_list_formatted = "\n".join(f"• <code>{html.escape(m)}</code>" for m in chat_models) or "<i>None</i>"
+            other_list_formatted = "\n".join(f"• <code>{html.escape(m)}</code>" for m in audio_and_other_models) or "<i>None</i>"
+
+            report = (
+                f"📋 <b>Groq Models Catalog ({len(model_ids)} total)</b>\n\n"
+                f"🧠 <b>Chat & Reasoning Models:</b>\n"
+                f"{chat_list_formatted}\n\n"
+                f"🎙️ <b>Audio / Safety / Special:</b>\n"
+                f"{other_list_formatted}\n\n"
+                f"💡 <i>Tip: The bot uses <code>llama-3.3-70b-versatile</code> by default.</i>"
+            )
+
+            try:
+                await status_msg.edit_text(report, parse_mode="HTML")
+            except TelegramError as e:
+                logger.warning("HTML edit failed in /groq_models (%s), falling back to plain text.", e)
+                plain_report = re.sub(r'<[^>]+>', '', report)
+                await status_msg.edit_text(plain_report, parse_mode=None)
+
+    except Exception as e:
+        logger.exception("Failed to query Groq models: %s", e)
+        err_clean = _sanitize_error(str(e))
+        try:
+            await status_msg.edit_text(f"🔴 <b>Error fetching Groq models:</b>\n<pre>{err_clean}</pre>", parse_mode="HTML")
+        except TelegramError:
+            await status_msg.edit_text(f"Error fetching Groq models: {err_clean}")

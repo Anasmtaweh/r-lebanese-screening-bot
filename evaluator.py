@@ -183,12 +183,12 @@ class AnswerEvaluator:
         return (
             "Analyze if the user answered ALL 4 screening questions:\n"
             "1. Are you Lebanese? If not, what country are you from? (Any nationality is accepted, we just need to know)\n"
-            "2. Are you 18 or older? (A simple 'Yes', 'نعم', or an age >= 18 is acceptable)\n"
+            "2. Are you 18 or older? (A simple 'Yes', 'نعم', or stating an age >= 18 such as '24 years old' or 'عمري 22' is completely valid and answers this question)\n"
             "3. How did you find out about our server? (e.g. Telegram, Reddit, a friend, search)\n"
             "4. Why are you interested in joining?\n\n"
             "CRITICAL RULES:\n"
             "1. JUNK vs INCOMPLETE: Single-word affirmative answers (e.g. 'yes', 'نعم', 'اي', 'أجل') or numbers (e.g. '22') ARE valid answers to Question 1 (nationality) or Question 2 (age). Do NOT classify these as JUNK! Only return JUNK if the user reply is completely non-responsive, gibberish (e.g. 'asdfgh'), off-topic spam ('buy crypto'), or insults ('who are you').\n"
-            "2. ANTI-LENIENCY: If the user genuinely answered AT LEAST ONE question (including 'yes'/'نعم' for Q1/Q2), you MUST return INCOMPLETE listing the missing questions (e.g., 'INCOMPLETE | 3, 4'). Do NOT return JUNK or SATISFACTORY.\n"
+            "2. ANTI-LENIENCY: If the user answered SOME questions (between 1 and 3 questions) but left others unanswered, you MUST return INCOMPLETE listing ONLY the missing question numbers (e.g., 'INCOMPLETE | 3, 4'). Do NOT return SATISFACTORY unless ALL 4 questions are answered.\n"
             "3. DIALECTS & SLANG: Accept answers in English, Arabic, or Lebanese Franco-Arabic dialect. Recognize modern AI tools like ChatGPT ('شات جي بتي') or internet search ('من النت') as valid sources for Q3. Recognize that insults or dismissals like 'انت مالك' (None of your business) do NOT answer Q4.\n"
             "4. HEBREW/ZIONIST: If the user writes in Hebrew script, mentions Israel as their country, or identifies as Zionist/Israeli, you MUST return UNSATISFACTORY immediately. This is an anti-Zionist community.\n\n"
             f"User Reply:\n\"\"\"{user_text}\"\"\"\n\n"
@@ -242,8 +242,8 @@ class AnswerEvaluator:
         """
         prompt = self._get_classification_prompt(user_text)
         models = [
-            "openai/gpt-oss-120b",
             "llama-3.3-70b-versatile",
+            "openai/gpt-oss-120b",
             "gemma2-9b-it",
             "mixtral-8x7b-32768",
         ]

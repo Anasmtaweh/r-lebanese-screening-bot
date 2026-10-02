@@ -40,7 +40,7 @@ from handlers import (
     on_admin_probation_blocked_command,
     on_admin_unprobation_command,
 )
-from diagnostics import on_admin_test_ai_command
+from diagnostics import on_admin_test_ai_command, on_admin_groq_models_command
 
 # Persistent file logging — survives crashes, always available on PythonAnywhere
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screening_bot.log")
@@ -103,6 +103,7 @@ def main() -> None:
     app.add_handler(CommandHandler("unprobation", on_admin_unprobation_command))
     app.add_handler(CommandHandler("test_crash", on_admin_crash_command))
     app.add_handler(CommandHandler("test_ai", on_admin_test_ai_command))
+    app.add_handler(CommandHandler("groq_models", on_admin_groq_models_command))
     app.add_handler(CommandHandler("help", on_admin_help_command))
 
 
