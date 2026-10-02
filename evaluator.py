@@ -93,8 +93,34 @@ class AnswerEvaluator:
 
         ai_error_msg = None
 
-        # 1. Primary: Gemini — superior reasoning, Arabic/dialect comprehension, common-sense inference.
-        #    Free tier: 1,500 req/day. Bot uses ~3-10/day. Quota is NOT at risk.
+        # --- SMART PRE-FILTER (Preserves Gemini RPM / Daily Quotas) ---
+        # 1. Obvious underage indicators: Flag immediately without API call
+        words = text_lower.split()
+        if "not 18" in text_lower or "under 18" in text_lower or "17" in words or "16" in words or "15" in words:
+            return (
+                RESULT_UNSATISFACTORY,
+                "User indicated they are under 18 years old.",
+                False,
+                None
+            )
+
+        # 2. Extremely short / lazy answers (< 4 words like "hi", "ok", "yes"): Prompt for all 4 questions
+        if len(words) < 4:
+            prompt = INCOMPLETE_PROMPT_AR if language_code == "ar" else INCOMPLETE_PROMPT_EN
+            return (
+                RESULT_INCOMPLETE,
+                prompt.format(missing_text="• All 4 questions / جميع الأسئلة الأربعة"),
+                False,
+                None
+            )
+
+        # 3. Fast-pass: If all 4 criteria are explicitly and clearly present via clear keywords
+        rule_res, rule_msg = self.evaluate_rule_based(user_text, language_code)
+        if rule_res == RESULT_SATISFACTORY:
+            return (RESULT_SATISFACTORY, rule_msg, False, None)
+
+        # 4. Deep AI Evaluation: Ambiguous, dialect, Arabizi, or partial answers requiring nuanced reasoning
+        # Primary: Gemini (verified live models: gemini-3.6-flash, gemini-3.5-flash)
         if self.gemini_api_key:
             try:
                 res, msg = await self.evaluate_with_gemini(user_text, language_code)
@@ -315,7 +341,7 @@ class AnswerEvaluator:
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
         )
 
-        models = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
+        models = ['gemini-3.6-flash', 'gemini-3.5-flash']
         resp = None
         last_exception = None
         
