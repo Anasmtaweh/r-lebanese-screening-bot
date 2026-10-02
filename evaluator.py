@@ -235,42 +235,48 @@ class AnswerEvaluator:
 
     async def evaluate_with_groq(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
-        Calls Groq API (llama-4-scout-17b-16e-instruct) using non-blocking async HTTP.
+        Calls Groq API (llama-3.3-70b-versatile with gemma2-9b-it fallback) using non-blocking async HTTP.
         Runs in ~0.15s with 14,400 free requests/day.
         """
         prompt = self._get_classification_prompt(user_text)
-        payload = {
-            "model": "llama-4-scout-17b-16e-instruct",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0,
-            "max_tokens": 20,
-        }
+        models = ["llama-3.3-70b-versatile", "gemma2-9b-it"]
         headers = {
             "Authorization": f"Bearer {self.groq_api_key}",
             "Content-Type": "application/json",
         }
 
         proxy_url = "http://proxy.server:3128" if os.environ.get("PYTHONANYWHERE_SITE") else None
-        max_retries = 2
         last_exception = None
         reply_token = ""
 
         async with httpx.AsyncClient(proxy=proxy_url, timeout=8.0) as client:
-            for attempt in range(max_retries):
-                try:
-                    resp = await client.post(
-                        "https://api.groq.com/openai/v1/chat/completions",
-                        json=payload,
-                        headers=headers,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    reply_token = data["choices"][0]["message"]["content"].strip().upper()
+            for model_name in models:
+                payload = {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.0,
+                    "max_tokens": 20,
+                }
+                for attempt in range(2):
+                    try:
+                        resp = await client.post(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            json=payload,
+                            headers=headers,
+                        )
+                        if resp.status_code == 404:
+                            # Model not found on this endpoint, try next model
+                            break
+                        resp.raise_for_status()
+                        data = resp.json()
+                        reply_token = data["choices"][0]["message"]["content"].strip().upper()
+                        break
+                    except Exception as e:
+                        last_exception = e
+                        if attempt < 1:
+                            await asyncio.sleep(1.0)
+                if reply_token:
                     break
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(1.0)
 
         if not reply_token:
             raise last_exception or ValueError("Groq returned an empty response.")
@@ -279,7 +285,7 @@ class AnswerEvaluator:
 
     async def evaluate_with_gemini(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
-        Calls Google Gemini API as secondary backend classifier.
+        Calls Google Gemini API (gemini-2.5-flash with gemini-1.5-flash and gemini-3.6-flash fallback).
         """
         prompt = self._get_classification_prompt(user_text)
         client = genai.Client(api_key=self.gemini_api_key)
@@ -294,22 +300,23 @@ class AnswerEvaluator:
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
         )
 
-        max_retries = 3
+        models = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-3.6-flash']
         resp = None
         last_exception = None
         
-        for attempt in range(max_retries):
+        for model_name in models:
             try:
                 resp = await client.aio.models.generate_content(
-                    model='gemini-3.6-flash',
+                    model=model_name,
                     contents=prompt,
                     config=config,
                 )
-                break
+                if resp and resp.text:
+                    break
             except Exception as e:
                 last_exception = e
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** (attempt + 1))
+                # If a model returns 503 UNAVAILABLE or 404, immediately try the next model
+                continue
                 
         if resp is None:
             raise last_exception
