@@ -1,6 +1,7 @@
 import logging
 import re
 import json
+import time
 import traceback
 import html
 from datetime import datetime, timezone, timedelta
@@ -1061,6 +1062,9 @@ async def on_admin_transcript_command(update: Update, context: ContextTypes.DEFA
 
 async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a list of available admin commands."""
+    message = update.effective_message
+    if not message:
+        return
     if not _is_admin(update):
         return
 
@@ -1080,6 +1084,7 @@ async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TY
         "   👉 `/list probation_cleared` (Users who successfully passed probation)\n\n"
         "   👉 `/list kicked_probation` (Users who failed probation and were kicked)\n\n"
         "• `/transcript <user_id>` - Read the exact private chat history between the bot and a specific user.\n\n"
+        "• `/test_ai` - Test live connectivity & latency to Groq and Gemini from Render.\n\n"
         "**Probation Management**\n\n"
         "• `/probation_en <user_id>` - Start a 1-week probation for a user (English warning).\n\n"
         "• `/probation_ar <user_id>` - Start a 1-week probation for a user (Arabic warning).\n\n"
@@ -1092,7 +1097,7 @@ async def on_admin_help_command(update: Update, context: ContextTypes.DEFAULT_TY
         "*(Note: You can also approve/decline users natively via Telegram's group management menu!)*"
     )
     
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    await message.reply_text(help_text, parse_mode="Markdown")
 
 
 async def undo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1155,3 +1160,71 @@ async def on_admin_crash_command(update: Update, context: ContextTypes.DEFAULT_T
         return
     await context.bot.send_message(chat_id=update.effective_chat.id, text="💥 Triggering a fake crash now! You should receive the error report privately.")
     raise ValueError("THIS IS A TEST CRASH FOR THE DEVELOPER.")
+
+
+async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Admin command: /test_ai
+    Pings both Gemini and Groq directly from Render to test live connectivity and reporting.
+    """
+    message = update.effective_message
+    if not message:
+        return
+    if not _is_admin(update):
+        return
+
+    status_msg = await message.reply_text("🧪 *Testing AI providers from Render...*\nPlease wait a moment.", parse_mode="Markdown")
+
+    test_input = "Yes I am Lebanese from Beirut, 24 years old, found via Reddit r/lebanon, want to join to chat about local news."
+
+    # 1. Test Groq
+    if not evaluator.groq_api_key:
+        groq_result_text = "❌ *GROQ:* No `GROQ_API_KEY` or `AI_API_KEY` configured in environment."
+    else:
+        t0 = time.perf_counter()
+        try:
+            res, feedback = await evaluator.evaluate_with_groq(test_input)
+            latency = time.perf_counter() - t0
+            groq_result_text = (
+                f"🟢 *GROQ: ONLINE*\n"
+                f"• Latency: `{latency:.2f}s`\n"
+                f"• Output: `{res}`\n"
+                f"• Model: `llama-3.3-70b-versatile`"
+            )
+        except Exception as e:
+            latency = time.perf_counter() - t0
+            groq_result_text = (
+                f"🔴 *GROQ: FAILED*\n"
+                f"• Latency: `{latency:.2f}s`\n"
+                f"• Error: `{_safe_md(str(e))}`"
+            )
+
+    # 2. Test Gemini
+    if not evaluator.gemini_api_key:
+        gemini_result_text = "❌ *GEMINI:* No `GEMINI_API_KEY` configured in environment."
+    else:
+        t0 = time.perf_counter()
+        try:
+            res, feedback = await evaluator.evaluate_with_gemini(test_input)
+            latency = time.perf_counter() - t0
+            gemini_result_text = (
+                f"🟢 *GEMINI: ONLINE*\n"
+                f"• Latency: `{latency:.2f}s`\n"
+                f"• Output: `{res}`\n"
+                f"• Models: `gemini-2.5-flash / gemini-1.5-flash`"
+            )
+        except Exception as e:
+            latency = time.perf_counter() - t0
+            gemini_result_text = (
+                f"🔴 *GEMINI: FAILED*\n"
+                f"• Latency: `{latency:.2f}s`\n"
+                f"• Error: `{_safe_md(str(e))}`"
+            )
+
+    report = (
+        "🤖 **Live AI Diagnostics (from Render)**\n\n"
+        f"{groq_result_text}\n\n"
+        f"{gemini_result_text}"
+    )
+
+    await status_msg.edit_text(report, parse_mode="Markdown")

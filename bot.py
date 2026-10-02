@@ -26,6 +26,7 @@ from handlers import (
     on_admin_stats_command,
     on_admin_transcript_command,
     on_admin_crash_command,
+    on_admin_test_ai_command,
     on_chat_member_updated,
     on_join_request,
     on_language_selection,
@@ -101,6 +102,7 @@ def main() -> None:
     app.add_handler(CommandHandler("pb", on_admin_probation_blocked_command))
     app.add_handler(CommandHandler("unprobation", on_admin_unprobation_command))
     app.add_handler(CommandHandler("test_crash", on_admin_crash_command))
+    app.add_handler(CommandHandler("test_ai", on_admin_test_ai_command))
     app.add_handler(CommandHandler("help", on_admin_help_command))
 
 
