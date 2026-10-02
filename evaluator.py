@@ -235,12 +235,12 @@ class AnswerEvaluator:
 
     async def evaluate_with_groq(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
-        Calls Groq API (llama-3.1-8b-instant) using non-blocking async HTTP.
+        Calls Groq API (llama-4-scout-17b-16e-instruct) using non-blocking async HTTP.
         Runs in ~0.15s with 14,400 free requests/day.
         """
         prompt = self._get_classification_prompt(user_text)
         payload = {
-            "model": "llama-3.1-8b-instant",
+            "model": "llama-4-scout-17b-16e-instruct",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
             "max_tokens": 20,
