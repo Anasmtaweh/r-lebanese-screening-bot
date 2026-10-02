@@ -93,25 +93,26 @@ class AnswerEvaluator:
 
         ai_error_msg = None
 
-        # 1. Primary: Try Gemini first (as per architecture flowchart)
-        if self.gemini_api_key:
-            try:
-                res, msg = await self.evaluate_with_gemini(user_text, language_code)
-                return (res, msg, True, None)
-            except Exception as e:
-                ai_error_msg = f"Gemini error: {e}"
-                print(f"Gemini evaluation failed ({e}), seamlessly switching to Groq fallback...")
-
-        # 2. Seamless Fallback: Try Groq (Llama 3.1 8B Instant - 14,400 free/day, ~0.15s async)
+        # 1. Primary: Try Groq first (blazing fast ~0.5s, 14,400 free requests/day, preserves Gemini quota)
         if self.groq_api_key:
             try:
                 res, msg = await self.evaluate_with_groq(user_text, language_code)
-                # Groq succeeded! Clear error so developer is not spammed with false failure alarms
                 return (res, msg, True, None)
             except Exception as e:
                 groq_err = f"Groq error: {e}"
-                ai_error_msg = f"{ai_error_msg}; {groq_err}" if ai_error_msg else groq_err
-                print(f"Groq evaluation failed ({e}), falling back to rule-based evaluation.")
+                ai_error_msg = groq_err
+                print(f"Groq evaluation failed ({e}), seamlessly falling back to Gemini...")
+
+        # 2. Seamless Fallback: Try Gemini (only when Groq fails, protects Gemini rate limits)
+        if self.gemini_api_key:
+            try:
+                res, msg = await self.evaluate_with_gemini(user_text, language_code)
+                # Gemini succeeded! Clear error so developer is not spammed
+                return (res, msg, True, None)
+            except Exception as e:
+                gemini_err = f"Gemini error: {e}"
+                ai_error_msg = f"{ai_error_msg}; {gemini_err}" if ai_error_msg else gemini_err
+                print(f"Gemini evaluation failed ({e}), falling back to rule-based evaluation.")
 
         # 3. Final Fallback: Rule-based heuristic (only when both AI providers fail or are missing)
         res, msg = self.evaluate_rule_based(user_text, language_code)
@@ -241,10 +242,10 @@ class AnswerEvaluator:
         """
         prompt = self._get_classification_prompt(user_text)
         models = [
+            "openai/gpt-oss-120b",
             "llama-3.3-70b-versatile",
             "gemma2-9b-it",
             "mixtral-8x7b-32768",
-            "llama-3.1-8b-instant"
         ]
         headers = {
             "Authorization": f"Bearer {self.groq_api_key.strip()}",

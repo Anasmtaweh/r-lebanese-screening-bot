@@ -89,7 +89,7 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
         parse_mode="HTML"
     )
 
-    test_input = "Yes I am Lebanese from Beirut, 24 years old, found via Reddit r/lebanon, want to join to chat about local news."
+    test_input = "1. Yes I am Lebanese.\n2. Yes, 24 years old.\n3. Found via Reddit r/lebanon.\n4. Want to join to chat with other Lebanese about culture and news."
 
     # 1. Test Groq
     if not _evaluator.groq_api_key:
@@ -122,7 +122,7 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
                     
                     # Pick best available model
                     target_model = None
-                    for pref in ["llama-3.3-70b-versatile", "gemma2-9b-it", "mixtral-8x7b-32768"]:
+                    for pref in ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "gemma2-9b-it", "mixtral-8x7b-32768"]:
                         if pref in chat_models:
                             target_model = pref
                             break
@@ -150,7 +150,7 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
                                 f"• Key Status: <b>Active & Valid (NOT BANNED)</b>\n"
                                 f"• Latency: <code>{latency:.2f}s</code>\n"
                                 f"• Model: <code>{html.escape(target_model)}</code>\n"
-                                f"• Output: <code>{html.escape(token)}</code>"
+                                f"• Output: <code>{html.escape(token)}</code> (Raw: <code>{html.escape(raw_reply[:35])}</code>)"
                             )
                         else:
                             try:
