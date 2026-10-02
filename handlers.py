@@ -1189,7 +1189,7 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
                 f"🟢 *GROQ: ONLINE*\n"
                 f"• Latency: `{latency:.2f}s`\n"
                 f"• Output: `{res}`\n"
-                f"• Model: `llama-3.3-70b-versatile`"
+                f"• Model: `{evaluator.last_groq_model or 'Groq'}`"
             )
         except Exception as e:
             latency = time.perf_counter() - t0
@@ -1211,7 +1211,7 @@ async def on_admin_test_ai_command(update: Update, context: ContextTypes.DEFAULT
                 f"🟢 *GEMINI: ONLINE*\n"
                 f"• Latency: `{latency:.2f}s`\n"
                 f"• Output: `{res}`\n"
-                f"• Models: `gemini-2.5-flash / gemini-1.5-flash`"
+                f"• Model: `{evaluator.last_gemini_model or 'Gemini'}`"
             )
         except Exception as e:
             latency = time.perf_counter() - t0

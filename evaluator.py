@@ -37,6 +37,8 @@ class AnswerEvaluator:
                     self.groq_api_key = api_key
 
         self.test_mode = os.getenv("TESTING_MODE") == "1"
+        self.last_groq_model = ""
+        self.last_gemini_model = ""
 
     @property
     def api_key(self) -> str:
@@ -235,11 +237,15 @@ class AnswerEvaluator:
 
     async def evaluate_with_groq(self, user_text: str, language_code: str = "en") -> Tuple[str, str]:
         """
-        Calls Groq API (llama-3.3-70b-versatile with gemma2-9b-it fallback) using non-blocking async HTTP.
-        Runs in ~0.15s with 14,400 free requests/day.
+        Calls Groq API with multi-model fallback using non-blocking async HTTP.
         """
         prompt = self._get_classification_prompt(user_text)
-        models = ["llama-3.3-70b-versatile", "gemma2-9b-it"]
+        models = [
+            "llama-3.3-70b-versatile",
+            "gemma2-9b-it",
+            "mixtral-8x7b-32768",
+            "llama-3.1-8b-instant"
+        ]
         headers = {
             "Authorization": f"Bearer {self.groq_api_key}",
             "Content-Type": "application/json",
@@ -249,13 +255,13 @@ class AnswerEvaluator:
         last_exception = None
         reply_token = ""
 
-        async with httpx.AsyncClient(proxy=proxy_url, timeout=8.0) as client:
+        async with httpx.AsyncClient(proxy=proxy_url, timeout=10.0) as client:
             for model_name in models:
                 payload = {
                     "model": model_name,
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.0,
-                    "max_tokens": 20,
+                    "temperature": 0.1,
+                    "max_tokens": 60,
                 }
                 for attempt in range(2):
                     try:
@@ -264,17 +270,21 @@ class AnswerEvaluator:
                             json=payload,
                             headers=headers,
                         )
-                        if resp.status_code == 404:
-                            # Model not found on this endpoint, try next model
+                        if resp.is_success:
+                            data = resp.json()
+                            reply_token = data["choices"][0]["message"]["content"].strip().upper()
+                            self.last_groq_model = model_name
                             break
-                        resp.raise_for_status()
-                        data = resp.json()
-                        reply_token = data["choices"][0]["message"]["content"].strip().upper()
-                        break
+                        else:
+                            err_text = resp.text
+                            last_exception = ValueError(f"Groq {model_name} HTTP {resp.status_code}: {err_text}")
+                            # If client error (400, 404, etc.), skip to next model
+                            if 400 <= resp.status_code < 500:
+                                break
                     except Exception as e:
                         last_exception = e
                         if attempt < 1:
-                            await asyncio.sleep(1.0)
+                            await asyncio.sleep(0.5)
                 if reply_token:
                     break
 
@@ -312,6 +322,7 @@ class AnswerEvaluator:
                     config=config,
                 )
                 if resp and resp.text:
+                    self.last_gemini_model = model_name
                     break
             except Exception as e:
                 last_exception = e
