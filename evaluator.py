@@ -276,8 +276,12 @@ class AnswerEvaluator:
                             self.last_groq_model = model_name
                             break
                         else:
-                            err_text = resp.text
-                            last_exception = ValueError(f"Groq {model_name} HTTP {resp.status_code}: {err_text}")
+                            try:
+                                err_json = resp.json()
+                                err_msg = err_json.get("error", {}).get("message", resp.text)
+                            except Exception:
+                                err_msg = resp.text
+                            last_exception = ValueError(f"Groq {model_name} (HTTP {resp.status_code}): {err_msg}")
                             # If client error (400, 404, etc.), skip to next model
                             if 400 <= resp.status_code < 500:
                                 break
